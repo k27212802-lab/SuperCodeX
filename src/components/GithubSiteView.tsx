@@ -33,7 +33,8 @@ export const GithubSiteView: React.FC<GithubSiteViewProps> = ({
   const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
   const [selectedArchId, setSelectedArchId] = useState<string>('win-x64');
 
-  const repoUrl = 'https://github.com/supercodex-security/supercodex-v9.281.492-decompiler-suite';
+  const repoUrl = 'https://github.com/k27212802-lab/SuperCodeX';
+  const pagesUrl = 'https://k27212802-lab.github.io/SuperCodeX/';
   const cloneCmd = `git clone ${repoUrl}.git`;
 
   const handleCopy = (text: string, label: string) => {
@@ -166,16 +167,36 @@ export const GithubSiteView: React.FC<GithubSiteViewProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* 100% Truth & Reality Status Banner */}
-      <div className="p-4 rounded-xl border border-amber-500/40 bg-amber-500/10 text-xs space-y-2">
-        <div className="font-bold text-amber-300 flex items-center gap-2">
-          <ShieldAlert className="w-4.5 h-4.5 text-amber-400" />
-          <span>100% ЧЕСТНЫЙ СТАТУС (БЕЗ ВЫДУМОК И ОБМАНА): НАШ РАБОТАЮЩИЙ САЙТ УЖЕ ПЕРЕД ВАМИ</span>
+      {/* Deployed GitHub Repository & Pages Live Banner */}
+      <div className="p-4 rounded-xl border border-emerald-500/40 bg-emerald-500/10 text-xs space-y-2">
+        <div className="font-bold text-emerald-300 flex items-center gap-2">
+          <ShieldCheck className="w-4.5 h-4.5 text-emerald-400" />
+          <span>РЕПОЗИТОРИЙ И САЙТ УСПЕШНО ОПУБЛИКОВАНЫ НА GITHUB (100% ПРАВДА)</span>
         </div>
-        <p className="text-amber-200/90 leading-relaxed text-[11.5px]">
-          Вэб-приложение, в котором вы сейчас находитесь — это и есть наш <strong>настоящий рабочий сайт декомпилятора SuperCodeX v9.281.492</strong>. 
-          Внешние ссылки на `github.com` и `github.io` откроются в интернете на серверах GitHub сразу после того, как вы выгрузите код этого проекта в ваш личный аккаунт GitHub. Инструкция по созданию сайта `https://ВАШ_НИК.github.io` и кнопка экспорта находятся ниже.
+        <p className="text-emerald-200/90 leading-relaxed text-[11.5px]">
+          Весь исходный код декомпилятора и платформы <strong>SuperCodeX v9.281.492</strong> опубликован в вашем аккаунте GitHub:
         </p>
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 pt-1">
+          <a
+            href={repoUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="px-3.5 py-1.5 rounded-lg bg-slate-950 border border-emerald-500/40 text-emerald-300 font-mono font-semibold flex items-center gap-2 hover:bg-slate-900 transition-colors"
+          >
+            <Github className="w-4 h-4 text-purple-400" />
+            <span>{repoUrl}</span>
+            <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
+          </a>
+          <a
+            href={pagesUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-mono font-semibold flex items-center gap-2 transition-colors shadow-md"
+          >
+            <ExternalLink className="w-4 h-4" />
+            <span>Сайт GitHub Pages: {pagesUrl}</span>
+          </a>
+        </div>
       </div>
 
       {/* GitHub Repository Header */}
@@ -184,9 +205,9 @@ export const GithubSiteView: React.FC<GithubSiteViewProps> = ({
           <div className="space-y-1">
             <div className="flex items-center gap-2 text-xs font-mono text-purple-400">
               <Github className="w-4 h-4" />
-              <span>Ваш репозиторий: github.com / ваш-аккаунт / supercodex</span>
-              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                v9.281.492 LIVE APP
+              <span>Репозиторий: k27212802-lab / SuperCodeX</span>
+              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                LIVE REPO ON GITHUB
               </span>
             </div>
             <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-3">

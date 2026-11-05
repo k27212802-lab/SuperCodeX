@@ -30,7 +30,7 @@ export const GithubRepoModal: React.FC<GithubRepoModalProps> = ({
 
   if (!isOpen) return null;
 
-  const repoCloneUrl = 'git clone https://github.com/supercodex-security/supercodex-v9.281.492-engine.git';
+  const repoCloneUrl = 'git clone https://github.com/k27212802-lab/SuperCodeX.git';
 
   const handleCopyClone = () => {
     navigator.clipboard?.writeText(repoCloneUrl);
