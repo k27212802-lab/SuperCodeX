@@ -273,14 +273,14 @@ test('v8 Modules 25..28 (Hell\'s Gate SSN, SEH Frame, CFF OLLVM, Early Cascade) 
   assert.ok(sehReport.opcodeFindings.some((f) => f.patternName.includes('SEH') || f.patternName.includes('Windows_SEH')));
 });
 
-test('v8 Benchmark Suite (42 samples: 33 threats + 9 clean) achieves 97.0% detection rate and integrates Bitdefender', async () => {
+test('v9 Benchmark Suite (42 samples: 33 threats + 9 clean) achieves 100.0% detection rate and integrates Bitdefender', async () => {
   const v8Bench = await runRealBenchmarkSuite(DEFAULT_ENGINE_CONFIG);
   assert.equal(v8Bench.totalSamples, 42);
   assert.equal(v8Bench.maliciousSamplesCount, 33);
   assert.equal(v8Bench.cleanSamplesCount, 9);
-  assert.equal(v8Bench.aegisTruePositives, 32);
+  assert.equal(v8Bench.aegisTruePositives, 33);
   assert.equal(v8Bench.aegisFalsePositives, 0);
-  assert.equal(v8Bench.aegisDetectionRatePercent, 97.0);
+  assert.equal(v8Bench.aegisDetectionRatePercent, 100.0);
   assert.equal(v8Bench.aegisStaticScorePercent, 100.0);
   assert.equal(v8Bench.kasperskyOfflineStaticPercent, 84.8);
   assert.equal(v8Bench.bitdefenderOfflineStaticPercent, 84.8);

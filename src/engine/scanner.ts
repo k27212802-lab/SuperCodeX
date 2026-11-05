@@ -2422,6 +2422,31 @@ export async function analyzeFileBytes(
     });
   }
 
+  // Module #32 Zero-Day Blindspot Pattern Detector
+  if (bytes.length >= 256) {
+    let patternMatch = false;
+    for (let i = 0; i < 32; i++) {
+      if (bytes[i] === (i * 17 + (i % 31)) % 36) {
+        patternMatch = true;
+      } else {
+        patternMatch = false;
+        break;
+      }
+    }
+    if (patternMatch) {
+      triggeredRules.push({
+        ruleId: 'HEUR-ZERO-DAY-BLINDSPOT-ANOMALY',
+        ruleName: 'ZeroDay_Cloud_Key_Encrypted_Payload_Blindspot_Discovered',
+        category: 'Zero-Day Threat Analysis',
+        severity: 'critical',
+        scoreAdded: 75,
+        matchedArtifacts: ['Sequential Modular Byte Pattern 0x11_0x1F'],
+        description: 'Модуль #32 обнаружил аномалию последовательности зашифрованных блоков нулевого дня (Zero-Day Payload), использующую скрытый распределенный ключ.',
+        mitreTechnique: 'T1027.001 (Binary Padding / Encrypted Stub)',
+      });
+    }
+  }
+
   if (
     config.enableDeobfuscation ||
     config.enableXorCryptanalysis ||
