@@ -10,9 +10,14 @@ else()
     add_compile_options(-Wall -Wextra -O3)
 endif()
 
-add_executable(supercodex_cli supercodex_cli.cpp)
+add_executable(supercodex
+    main.cpp
+    pe_parser.cpp
+    scanner.cpp
+    decompiler.cpp
+)
 
-set_target_properties(supercodex_cli PROPERTIES
+set_target_properties(supercodex PROPERTIES
     OUTPUT_NAME "supercodex"
-    PROJECT_LABEL "SuperCodeX Native CLI & Decompiler Engine"
+    PROJECT_LABEL "SuperCodeX Native C++ CLI & Lossless AST Decompiler Engine"
 )
