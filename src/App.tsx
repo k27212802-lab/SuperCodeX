@@ -41,6 +41,30 @@ export default function App() {
   const [isWinModalOpen, setIsWinModalOpen] = useState(false);
   const [isGithubModalOpen, setIsGithubModalOpen] = useState(false);
 
+  // Initial load: parse sample and benchmark suite without blocking main thread
+  useEffect(() => {
+    let isMounted = true;
+    const initialSample = BENCHMARK_SAMPLES.find((s) => s.id === 'BM-36') || BENCHMARK_SAMPLES[30] || BENCHMARK_SAMPLES[0];
+    const initialBytes = initialSample.buildBytes();
+
+    analyzeFileBytes(initialSample.fileName, initialBytes, DEFAULT_ENGINE_CONFIG, []).then((rep) => {
+      if (isMounted) {
+        setCurrentReport(rep);
+        setScanHistory([rep]);
+      }
+    });
+
+    runRealBenchmarkSuite(DEFAULT_ENGINE_CONFIG).then((res) => {
+      if (isMounted) {
+        setBenchmarkResult(res);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   const handleScanBytes = useCallback(
     async (fileName: string, bytes: Uint8Array, cfg: EngineConfig = engineConfig, rules: YaraRule[] = customRules) => {
       setIsScanning(true);
@@ -63,19 +87,6 @@ export default function App() {
     } finally {
       setIsRunningBenchmark(false);
     }
-  }, []);
-
-  // Initial load: scan the Multi-Function C++ Call-Graph & PDB Symbol Implant (.exe) and run the 36-sample v7 benchmark suite
-  useEffect(() => {
-    const initialSample = BENCHMARK_SAMPLES.find((s) => s.id === 'BM-36') || BENCHMARK_SAMPLES[30];
-    const initialBytes = initialSample.buildBytes();
-    analyzeFileBytes(initialSample.fileName, initialBytes, DEFAULT_ENGINE_CONFIG, []).then((rep) => {
-      setCurrentReport(rep);
-      setScanHistory([rep]);
-    });
-    runRealBenchmarkSuite(DEFAULT_ENGINE_CONFIG).then((res) => {
-      setBenchmarkResult(res);
-    });
   }, []);
 
   const handleUpdateConfig = async (nextConfig: EngineConfig) => {
