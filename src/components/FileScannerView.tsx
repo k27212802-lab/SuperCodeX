@@ -18,6 +18,8 @@ import {
   RefreshCw,
   CheckCircle2,
   XCircle,
+  Sparkles,
+  Bot,
 } from 'lucide-react';
 import { queryVirusTotalFileReport } from '../engine/virustotal';
 
@@ -39,6 +41,36 @@ export const FileScannerView: React.FC<FileScannerViewProps> = ({
   const [isCheckingVt, setIsCheckingVt] = useState(false);
   const [vtCheckResult, setVtCheckResult] = useState<any | null>(null);
   const [vtError, setVtError] = useState<string | null>(null);
+
+  const [isAuditingWithAi, setIsAuditingWithAi] = useState(false);
+  const [aiAuditResult, setAiAuditResult] = useState<string | null>(null);
+  const [aiAuditError, setAiAuditError] = useState<string | null>(null);
+
+  const handleRunAiAudit = async () => {
+    setIsAuditingWithAi(true);
+    setAiAuditError(null);
+    try {
+      const response = await fetch('/api/ai-audit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          code: currentReport.decompilation.reconstructedCode,
+          fileName: currentReport.fileName,
+          format: currentReport.headerAnalysis.format,
+        }),
+      });
+      const data = await response.json();
+      if (data.success && data.analysis) {
+        setAiAuditResult(data.analysis);
+      } else {
+        setAiAuditError(data.error || 'Ошибка ИИ-аудита исходного кода.');
+      }
+    } catch (e: any) {
+      setAiAuditError(e.message || String(e));
+    } finally {
+      setIsAuditingWithAi(false);
+    }
+  };
 
   const handleCheckCurrentFileOnVirusTotal = async () => {
     setIsCheckingVt(true);
@@ -673,24 +705,69 @@ export const FileScannerView: React.FC<FileScannerViewProps> = ({
                 </div>
 
                 {/* Right Column: Reconstructed C/C++, C#, or Java Source Code */}
-                <div className="lg:col-span-7 border border-slate-800 rounded-lg bg-slate-950 overflow-hidden">
-                  <div className="px-4 py-2.5 border-b border-slate-800 bg-slate-900/70 flex items-center justify-between">
-                    <span className="text-xs font-semibold text-slate-200 flex items-center gap-2">
-                      <FileCode className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>
-                        Восстановленный код ({currentReport.decompilation.targetLanguage})
-                      </span>
-                    </span>
-                    <span className="text-[11px] font-mono text-emerald-400">
-                      Точность: {qm.overallAegisQualityPercent}% (Ghidra: {qm.ghidraReferenceQualityPercent}%)
-                    </span>
+                <div className="lg:col-span-7 space-y-4">
+                  {/* AI Code Audit Trigger Card */}
+                  <div className="p-4 rounded-xl border border-purple-500/40 bg-purple-950/30 space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="space-y-0.5">
+                        <div className="text-xs font-bold text-white flex items-center gap-2">
+                          <Sparkles className="w-4 h-4 text-purple-400" />
+                          <span>ИИ-Нейросеть Аудит C++ Кода (Gemini 3.8 Flash)</span>
+                        </div>
+                        <p className="text-[11px] text-purple-200/80">
+                          Проверка каждого восстановленного участка C++ кода, функций и аргументов через ИИ
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleRunAiAudit}
+                        disabled={isAuditingWithAi}
+                        className="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs transition-colors flex items-center gap-2 shrink-0 cursor-pointer disabled:opacity-50 shadow-md"
+                      >
+                        <Bot className="w-4 h-4" />
+                        <span>{isAuditingWithAi ? 'ИИ анализирует код...' : 'Проверить C++ код ИИ'}</span>
+                      </button>
+                    </div>
+
+                    {aiAuditError && (
+                      <div className="p-2.5 rounded bg-rose-950/60 border border-rose-500/40 text-xs text-rose-300">
+                        {aiAuditError}
+                      </div>
+                    )}
+
+                    {aiAuditResult && (
+                      <div className="p-3.5 rounded-lg bg-slate-950 border border-purple-500/30 space-y-2 text-xs">
+                        <div className="font-bold text-purple-300 flex items-center gap-1.5 border-b border-purple-900/50 pb-2">
+                          <Bot className="w-4 h-4 text-purple-400" />
+                          <span>Заключение ИИ-Нейросети Gemini 3.8 Flash:</span>
+                        </div>
+                        <div className="text-slate-200 text-[11.5px] leading-relaxed whitespace-pre-wrap font-sans">
+                          {aiAuditResult}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <pre
-                    data-testid="decompiled-source-code"
-                    className="p-4 text-xs font-mono text-slate-200 overflow-x-auto leading-relaxed whitespace-pre"
-                  >
-                    {currentReport.decompilation.reconstructedCode}
-                  </pre>
+
+                  <div className="border border-slate-800 rounded-lg bg-slate-950 overflow-hidden">
+                    <div className="px-4 py-2.5 border-b border-slate-800 bg-slate-900/70 flex items-center justify-between">
+                      <span className="text-xs font-semibold text-slate-200 flex items-center gap-2">
+                        <FileCode className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>
+                          Восстановленный код ({currentReport.decompilation.targetLanguage})
+                        </span>
+                      </span>
+                      <span className="text-[11px] font-mono text-emerald-400">
+                        Точность: {qm.overallAegisQualityPercent}% (Ghidra: {qm.ghidraReferenceQualityPercent}%)
+                      </span>
+                    </div>
+                    <pre
+                      data-testid="decompiled-source-code"
+                      className="p-4 text-xs font-mono text-slate-200 overflow-x-auto leading-relaxed whitespace-pre"
+                    >
+                      {currentReport.decompilation.reconstructedCode}
+                    </pre>
+                  </div>
                 </div>
               </div>
             </div>
