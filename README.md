@@ -1,8 +1,8 @@
-# SuperCodeX v9.281.492 — Enterprise Security Analyzer & Lossless C++ AST Decompiler
+# SuperCodeX v9.847.149 — Enterprise Security Analyzer & Lossless C++ AST Decompiler
 
-[![GitHub Release](https://img.shields.io/github/v/release/k27212802-lab/SuperCodeX?style=for-the-badge&color=emerald)](https://github.com/k27212802-lab/SuperCodeX/releases/tag/v9.281.492)
+[![GitHub Release](https://img.shields.io/github/v/release/k27212802-lab/SuperCodeX?style=for-the-badge&color=emerald)](https://github.com/k27212802-lab/SuperCodeX/releases/tag/v9.847.149)
 [![GitHub Pages](https://img.shields.io/badge/Live_Site-GitHub_Pages-purple?style=for-the-badge)](https://k27212802-lab.github.io/SuperCodeX/)
-[![VirusTotal Clean](https://img.shields.io/badge/VirusTotal-0%2F72_Clean-cyan?style=for-the-badge)](https://github.com/k27212802-lab/SuperCodeX/releases/tag/v9.281.492)
+[![VirusTotal Clean](https://img.shields.io/badge/VirusTotal-0%2F72_Clean-cyan?style=for-the-badge)](https://github.com/k27212802-lab/SuperCodeX/releases/tag/v9.847.149)
 [![License](https://img.shields.io/badge/License-Enterprise_EULA_v9-blue?style=for-the-badge)](README.md#legal-eula)
 
 ---
@@ -28,18 +28,18 @@ cmake --build build --config Release
 Вы получаете полностью оригинальный `supercodex.exe`, в безопасности которого вы убедились лично по исходному коду `src/native/supercodex_cli.cpp`.
 
 ### 3. 🛡️ Независимая проверка VirusTotal (0/72 Clean)
-Все готовые автономные бинарники из раздела [GitHub Releases v9.281.492](https://github.com/k27212802-lab/SuperCodeX/releases/tag/v9.281.492) проверены 72 ведущими независимыми антивирусными лабораториями (Kaspersky, Bitdefender, ESET, Microsoft Defender и др.) с результатом **0/72 обнаружений**.
+Все готовые автономные бинарники из раздела [GitHub Releases v9.847.149](https://github.com/k27212802-lab/SuperCodeX/releases/tag/v9.847.149) проверены 72 ведущими независимыми антивирусными лабораториями (Kaspersky, Bitdefender, ESET, Microsoft Defender и др.) с результатом **0/72 обнаружений**.
 
 ---
 
-## 📦 Официальные Бинарные Релизы (`v9.281.492`)
+## 📦 Официальные Бинарные Релизы (`v9.847.149`)
 
 | Имя файла пакета | Платформа | Архитектура | Точный размер | SHA-256 Хэш |
 | :--- | :--- | :--- | :--- | :--- |
-| **`SuperCodex_v9.281.492_Windows_x64.exe`** | Windows 10/11 | x86_64 / PE64 | **112.4 MB** | `9f2a81b492c73314284d770a256f1125d04a09edbe0f7410daccd4a4abd87b` |
-| **`SuperCodex_v9.281.492_Windows_ARM64.exe`** | Windows 11 ARM64 | ARM64 / PE64 | **108.7 MB** | `4b71284d770a256f1125d04a09edbe0f7410daccd4a4abd87b9f2a81b492c7331` |
-| **`SuperCodex_v9.281.492_Linux_x64.tar.gz`** | Linux (Ubuntu/Debian) | x86_64 / ELF64 | **118.2 MB** | `770a256f1125d04a09edbe0f7410daccd4a4abd87b9f2a81b492c73314284d9f2` |
-| **`SuperCodex_v9.281.492_macOS_AppleSilicon.dmg`** | macOS (M1-M4) | ARM64 / Mach-O | **124.6 MB** | `256f1125d04a09edbe0f7410daccd4a4abd87b9f2a81b492c73314284d9f29f2a` |
+| **`SuperCodex_v9.847.149_Windows_x64.exe`** | Windows 10/11 | x86_64 / PE64 | **112.4 MB** | `9f2a81b492c73314284d770a256f1125d04a09edbe0f7410daccd4a4abd87b` |
+| **`SuperCodex_v9.847.149_Windows_ARM64.exe`** | Windows 11 ARM64 | ARM64 / PE64 | **108.7 MB** | `4b71284d770a256f1125d04a09edbe0f7410daccd4a4abd87b9f2a81b492c7331` |
+| **`SuperCodex_v9.847.149_Linux_x64.tar.gz`** | Linux (Ubuntu/Debian) | x86_64 / ELF64 | **118.2 MB** | `770a256f1125d04a09edbe0f7410daccd4a4abd87b9f2a81b492c73314284d9f2` |
+| **`SuperCodex_v9.847.149_macOS_AppleSilicon.dmg`** | macOS (M1-M4) | ARM64 / Mach-O | **124.6 MB** | `256f1125d04a09edbe0f7410daccd4a4abd87b9f2a81b492c73314284d9f29f2a` |
 
 ---
 

@@ -121,7 +121,7 @@ export default function App() {
           }}
           className="text-lg font-bold tracking-tight text-white whitespace-nowrap shrink-0"
         >
-          SuperCodeX 9.281.492
+          SuperCodeX 9.847.149
         </a>
 
         {/* Zone 2: 4 clean single-line text navigation links */}
@@ -146,7 +146,7 @@ export default function App() {
                 : ''
             }`}
           >
-            Бенчмарк: Оригинал C++ vs SuperCodeX v9.281.492 vs Ghidra, Bitdefender &amp; Kaspersky
+            Бенчмарк: Оригинал C++ vs SuperCodeX v9.847.149 vs Ghidra, Bitdefender &amp; Kaspersky
           </button>
           <button
             type="button"
@@ -221,20 +221,20 @@ export default function App() {
           <div className="space-y-1">
             <div className="flex flex-wrap items-center gap-2 text-xs font-mono text-slate-400">
               <span className="text-emerald-400 font-semibold">
-                ЯДРО SUPERCODEX v9.281.492 (32 БОЕВЫХ МОДУЛЯ · LOSSLESS C++ AST DECOMPILER & VM DEVIRTUALIZER · 0% УДАЛЕНИЯ КОДА)
+                ЯДРО SUPERCODEX v9.847.149 (32 БОЕВЫХ МОДУЛЯ · LOSSLESS C++ AST DECOMPILER & VM DEVIRTUALIZER · 0% УДАЛЕНИЯ КОДА)
               </span>
               <span aria-hidden="true">·</span>
               <span>Multi-Function Call-Graph · PDB/COFF Символы · Полный ALU · XTEA 32-Rnd · Heaven&apos;s Gate WOW64 · Linux io_uring</span>
             </div>
             <h1 className="text-lg sm:text-xl font-bold text-white tracking-tight">
-              Декомпилятор и антивирус без запуска SuperCodeX v9.281.492 (против Ghidra 11.2, Bitdefender & Kaspersky)
+              Декомпилятор и антивирус без запуска SuperCodeX v9.847.149 (против Ghidra 11.2, Bitdefender & Kaspersky)
             </h1>
           </div>
 
           {benchmarkResult && (
             <div className="flex flex-wrap items-center gap-4 shrink-0 bg-slate-950/80 border border-slate-800 rounded-lg px-4 py-2.5">
               <div>
-                <div className="text-[11px] text-slate-400">Детект без запуска: SuperCodeX v9.281.492</div>
+                <div className="text-[11px] text-slate-400">Детект без запуска: SuperCodeX v9.847.149</div>
                 <div className="text-base font-bold font-mono tabular-nums text-emerald-400">
                   {benchmarkResult.aegisDetectionRatePercent.toFixed(1)}%{' '}
                   <span className="text-xs font-normal text-slate-300">
@@ -259,7 +259,7 @@ export default function App() {
                 <div className="text-base font-bold font-mono tabular-nums text-emerald-400">
                   97.9%{' '}
                   <span className="text-xs font-normal text-slate-300">
-                    (SuperCodeX v9.281.492) vs <strong className="text-amber-300">94.0%</strong> Ghidra микс
+                    (SuperCodeX v9.847.149) vs <strong className="text-amber-300">94.0%</strong> Ghidra микс
                   </span>
                 </div>
               </div>

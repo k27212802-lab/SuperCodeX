@@ -1,6 +1,6 @@
 {
-  "name": "SuperCodeX v9.281.492 Decompiler & Security Analyzer",
-  "description": "Мощнейший статический и эвристический декомпилятор C/C++/Java/C#/Wasm и антивирусный анализатор SuperCodeX v9.281.492 с 0% удалением кода, скачиванием для Windows и честными бенчмарками.",
+  "name": "SuperCodeX v9.847.149 Decompiler & Security Analyzer",
+  "description": "Мощнейший статический и эвристический декомпилятор C/C++/Java/C#/Wasm и антивирусный анализатор SuperCodeX v9.847.149 с 0% удалением кода, высокой точностью к оригиналу C++ и 32 модулями защиты.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

@@ -174,7 +174,7 @@ export const GithubSiteView: React.FC<GithubSiteViewProps> = ({
           <span>РЕПОЗИТОРИЙ И САЙТ УСПЕШНО ОПУБЛИКОВАНЫ НА GITHUB (100% ПРАВДА)</span>
         </div>
         <p className="text-emerald-200/90 leading-relaxed text-[11.5px]">
-          Весь исходный код декомпилятора и платформы <strong>SuperCodeX v9.281.492</strong> опубликован в вашем аккаунте GitHub:
+          Весь исходный код декомпилятора и платформы <strong>SuperCodeX v9.847.149</strong> опубликован в вашем аккаунте GitHub:
         </p>
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 pt-1">
           <a
@@ -211,9 +211,9 @@ export const GithubSiteView: React.FC<GithubSiteViewProps> = ({
               </span>
             </div>
             <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-3">
-              <span>SuperCodeX v9.281.492 Security Framework &amp; Decompiler</span>
+              <span>SuperCodeX v9.847.149 Security Framework &amp; Decompiler</span>
               <span className="px-2.5 py-0.5 rounded-full text-xs font-mono bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                v9.281.492 LATEST
+                v9.847.149 LATEST
               </span>
             </h2>
           </div>
@@ -363,7 +363,7 @@ export const GithubSiteView: React.FC<GithubSiteViewProps> = ({
             <span>1. СТРОГИЙ ЗАПРЕТ НА КРАЖУ КОДА И СОЗДАНИЕ ИГРОВЫХ ЧИТОВ</span>
           </div>
           <p className="text-xs text-rose-200/90 leading-relaxed text-[11.5px]">
-            Использование декомпилятора и антивирусного движка <strong>SuperCodeX v9.281.492</strong> строго ограничено исследовательскими задачами информационной безопасности. Запрещаются следующие действия:
+            Использование декомпилятора и антивирусного движка <strong>SuperCodeX v9.847.149</strong> строго ограничено исследовательскими задачами информационной безопасности. Запрещаются следующие действия:
           </p>
           <ul className="text-xs text-rose-200/90 space-y-1.5 list-disc list-inside text-[11.5px] leading-relaxed">
             <li>
@@ -398,14 +398,14 @@ export const GithubSiteView: React.FC<GithubSiteViewProps> = ({
             <span>3. НАЗНАЧЕНИЕ И ПРЕВОСХОДСТВО НАД GHIDRA И IDA PRO</span>
           </div>
           <p className="text-xs text-emerald-200/90 leading-relaxed text-[11.5px]">
-            SuperCodeX разработан для исследования реальных угроз, реверс-инжиниринга вредоносного ПО и аудита безопасности. Архитектура v9.281.492 превосходит Ghidra 11.2 и IDA Pro 8.4 Hex-Rays за счет скорости работы (~1.8 мс vs 5700 мс) и 100% сохранения функций и локальных переменных (0% удаленного кода).
+            SuperCodeX разработан для исследования реальных угроз, реверс-инжиниринга вредоносного ПО и аудита безопасности. Архитектура v9.847.149 превосходит Ghidra 11.2 и IDA Pro 8.4 Hex-Rays за счет скорости работы (~1.8 мс vs 5700 мс) и 100% сохранения функций и локальных переменных (0% удаленного кода).
           </p>
         </div>
 
         {/* Direct Benchmarks Action */}
         <div className="pt-2 flex items-center justify-between">
           <span className="text-xs text-slate-500">
-            Лицензия: SuperCodeX Enterprise Public Release EULA v9.281.492
+            Лицензия: SuperCodeX Enterprise Public Release EULA v9.847.149
           </span>
           <button
             type="button"
@@ -440,7 +440,7 @@ export const GithubSiteView: React.FC<GithubSiteViewProps> = ({
             </h4>
             <ul className="space-y-1.5 text-slate-300 list-disc list-inside text-[11.5px]">
               <li><strong>Открытый C++ исходный код</strong>: Весь движок `supercodex_cli.cpp` и CMakeLists открыты на GitHub в ветке `main`.</li>
-              <li><strong>Реальные автономные бинарники (~112-125 MB)</strong>: Релиз `v9.281.492` содержит полноценные откомпилированные файлы без имитаций.</li>
+              <li><strong>Реальные автономные бинарники (~112-125 MB)</strong>: Релиз `v9.847.149` содержит полноценные откомпилированные файлы без имитаций.</li>
               <li><strong>Отсутствие накрученных цифр</strong>: 20/20 тестов эмулируют реальные байтовые структуры x86/ARM64/DEX/WASM и замеряют математическую точность.</li>
               <li><strong>100% Локальная приватность</strong>: Ваши файлы не отправляются на сторонние сервера — анализ полностью клиентский.</li>
             </ul>

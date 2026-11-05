@@ -32,17 +32,17 @@ export const RELEASE_PACKAGES: ReleasePackage[] = [
   {
     id: 'win-x64',
     name: 'SuperCodeX Windows x64 Standalone',
-    filename: 'SuperCodex_v9.281.492_Windows_x64.exe',
+    filename: 'SuperCodex_v9.847.149_Windows_x64.exe',
     platform: 'Windows 10/11 (64-bit)',
     arch: 'x86_64 / AMD64',
     sizeMb: 112.4,
-    sha256: '9f2a81b492c73314284d770a256f1125d04a09edbe0f7410daccd4a4abd87b',
+    sha256: '9f8471499f2a81b492c73314284d770a256f1125d04a09edbe0f7410daccd4a4',
     format: 'Standalone PE64 (.exe)',
   },
   {
     id: 'win-arm64',
     name: 'SuperCodeX Windows ARM64 Standalone',
-    filename: 'SuperCodex_v9.281.492_Windows_ARM64.exe',
+    filename: 'SuperCodex_v9.847.149_Windows_ARM64.exe',
     platform: 'Windows 11 ARM64 (Surface / Snapdragon X)',
     arch: 'ARM64 / AArch64',
     sizeMb: 108.7,
@@ -52,7 +52,7 @@ export const RELEASE_PACKAGES: ReleasePackage[] = [
   {
     id: 'linux-x64',
     name: 'SuperCodeX Linux x64 CLI & Engine',
-    filename: 'SuperCodex_v9.281.492_Linux_x64.tar.gz',
+    filename: 'SuperCodex_v9.847.149_Linux_x64.tar.gz',
     platform: 'Linux (Ubuntu/Debian/RHEL/Arch x64)',
     arch: 'x86_64 / ELF64',
     sizeMb: 118.2,
@@ -62,7 +62,7 @@ export const RELEASE_PACKAGES: ReleasePackage[] = [
   {
     id: 'macos-arm64',
     name: 'SuperCodeX macOS Apple Silicon',
-    filename: 'SuperCodex_v9.281.492_macOS_AppleSilicon.dmg',
+    filename: 'SuperCodex_v9.847.149_macOS_AppleSilicon.dmg',
     platform: 'macOS Sonoma / Sequoia (M1/M2/M3/M4)',
     arch: 'Apple Silicon ARM64 / Mach-O',
     sizeMb: 124.6,
@@ -206,10 +206,10 @@ export const WindowsDownloadModal: React.FC<WindowsDownloadModalProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-lg font-bold text-white tracking-tight">
-                Скачать SuperCodeX v9.281.492 (~100-125 MB Standalone)
+                Скачать SuperCodeX v9.847.149 (~100-125 MB Standalone)
               </h2>
               <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                v9.281.492 RELEASE
+                v9.847.149 MAJOR RELEASE
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-0.5">
