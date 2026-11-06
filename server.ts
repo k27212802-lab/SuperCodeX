@@ -207,6 +207,23 @@ app.post('/api/verify-cpp-syntax', (req, res) => {
   }
 });
 
+// Endpoint: Check if Ghidra Headless Analyzer (analyzeHeadless) is installed on the host
+app.get('/api/ghidra-status', async (_req, res) => {
+  try {
+    const { execFileSync } = await import('child_process');
+    const binPath = execFileSync('which', ['analyzeHeadless'], { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    return res.json({
+      installed: Boolean(binPath),
+      message: binPath ? `Ghidra Headless установлена: ${binPath}` : 'Ghidra не установлена, сравнение недоступно',
+    });
+  } catch {
+    return res.json({
+      installed: false,
+      message: 'Ghidra не установлена, сравнение недоступно',
+    });
+  }
+});
+
 const REPO_FILES_TO_SYNC = [
   'README.md',
   'package.json',
@@ -216,6 +233,23 @@ const REPO_FILES_TO_SYNC = [
   'metadata.json',
   'server.ts',
   '.github/workflows/deploy.yml',
+  'scripts/bench.ts',
+  'tests/corpus/01_checksum.cpp',
+  'tests/corpus/02_compute_div3.cpp',
+  'tests/corpus/03_switch_classify.cpp',
+  'tests/corpus/04_while_collatz.cpp',
+  'tests/corpus/05_dowhile_digits.cpp',
+  'tests/corpus/06_ifelse_grade.cpp',
+  'tests/corpus/07_recursion_fib.cpp',
+  'tests/corpus/08_gcd_loop.cpp',
+  'tests/corpus/09_array_sum.cpp',
+  'tests/corpus/10_array_max.cpp',
+  'tests/corpus/11_pointer_mutate.cpp',
+  'tests/corpus/12_struct_fields.cpp',
+  'tests/corpus/13_virtual_shape.cpp',
+  'tests/corpus/14_string_scan.cpp',
+  'tests/corpus/15_nested_loops_grid.cpp',
+  'tests/corpus/16_clean_minimal.cpp',
   'src/main.tsx',
   'src/App.tsx',
   'src/index.css',
@@ -232,7 +266,7 @@ const REPO_FILES_TO_SYNC = [
   'src/engine/benchmark.ts',
   'src/engine/cppSyntaxValidator.ts',
   'src/engine/decompiler.ts',
-  'src/engine/ghidraIntegration.ts',
+  'src/engine/elfDecompiler.ts',
   'src/engine/peExportAndDecoder.ts',
   'src/engine/projectLifter.ts',
   'src/engine/scanner.ts',
@@ -337,12 +371,35 @@ app.post('/api/github-push', async (req, res) => {
 
     // 3. Collect all real local files and create tree entries
     const files = collectRepoFiles();
-    const treeEntries = Object.entries(files).map(([filePath, content]) => ({
+    const treeEntries: Array<Record<string, any>> = Object.entries(files).map(([filePath, content]) => ({
       path: filePath,
       mode: '100644',
       type: 'blob',
       content,
     }));
+
+    // Upload binary tmp/Qt5Xml.dll blob so Test #27 works out of the box in cloned repository
+    const qtDllPath = path.join(process.cwd(), 'tmp/Qt5Xml.dll');
+    if (fs.existsSync(qtDllPath)) {
+      const dllBase64 = fs.readFileSync(qtDllPath).toString('base64');
+      const blobRes = await fetch(`https://api.github.com/repos/${repo}/git/blobs`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          content: dllBase64,
+          encoding: 'base64',
+        }),
+      });
+      if (blobRes.ok) {
+        const blobData: any = await blobRes.json();
+        treeEntries.push({
+          path: 'tmp/Qt5Xml.dll',
+          mode: '100644',
+          type: 'blob',
+          sha: blobData.sha,
+        });
+      }
+    }
 
     // 4. Create new Git Tree
     const treeRes = await fetch(`https://api.github.com/repos/${repo}/git/trees`, {
