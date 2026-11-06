@@ -20,11 +20,10 @@ import {
 import { FileScannerView } from './components/FileScannerView';
 import { BenchmarkView } from './components/BenchmarkView';
 import { YaraRulesLabView } from './components/YaraRulesLabView';
-import { Shield, FileSearch, BarChart3, Code2, History, Download, Laptop } from 'lucide-react';
+import { History, Download, Github, ShieldAlert } from 'lucide-react';
 import { WindowsDownloadModal } from './components/WindowsDownloadModal';
 import { GithubRepoModal } from './components/GithubRepoModal';
 import { GithubSiteView } from './components/GithubSiteView';
-import { Github } from 'lucide-react';
 
 type ActiveTab = 'scanner' | 'benchmark' | 'yara' | 'history' | 'github';
 
@@ -33,6 +32,7 @@ export default function App() {
   const [engineConfig, setEngineConfig] = useState<EngineConfig>(DEFAULT_ENGINE_CONFIG);
   const [customRules, setCustomRules] = useState<YaraRule[]>([]);
   const [currentReport, setCurrentReport] = useState<ScanReport | null>(null);
+  const [hasUserScanned, setHasUserScanned] = useState<boolean>(false);
   const [scanHistory, setScanHistory] = useState<ScanReport[]>([]);
   const [isScanning, setIsScanning] = useState(false);
 
@@ -41,18 +41,22 @@ export default function App() {
   const [isWinModalOpen, setIsWinModalOpen] = useState(false);
   const [isGithubModalOpen, setIsGithubModalOpen] = useState(false);
 
-  // Initial load: parse sample and benchmark suite without blocking main thread
+  // Initial load: run benchmark suite in background, keep scanner at 0 files until user adds & scans
   useEffect(() => {
     let isMounted = true;
-    const initialSample = BENCHMARK_SAMPLES.find((s) => s.id === 'BM-36') || BENCHMARK_SAMPLES[30] || BENCHMARK_SAMPLES[0];
+    const initialSample =
+      BENCHMARK_SAMPLES.find((s) => s.id === 'BM-36') ||
+      BENCHMARK_SAMPLES[30] ||
+      BENCHMARK_SAMPLES[0];
     const initialBytes = initialSample.buildBytes();
 
-    analyzeFileBytes(initialSample.fileName, initialBytes, DEFAULT_ENGINE_CONFIG, []).then((rep) => {
-      if (isMounted) {
-        setCurrentReport(rep);
-        setScanHistory([rep]);
+    analyzeFileBytes(initialSample.fileName, initialBytes, DEFAULT_ENGINE_CONFIG, []).then(
+      (rep) => {
+        if (isMounted) {
+          setCurrentReport(rep);
+        }
       }
-    });
+    );
 
     runRealBenchmarkSuite(DEFAULT_ENGINE_CONFIG).then((res) => {
       if (isMounted) {
@@ -66,12 +70,19 @@ export default function App() {
   }, []);
 
   const handleScanBytes = useCallback(
-    async (fileName: string, bytes: Uint8Array, cfg: EngineConfig = engineConfig, rules: YaraRule[] = customRules) => {
+    async (
+      fileName: string,
+      bytes: Uint8Array,
+      cfg: EngineConfig = engineConfig,
+      rules: YaraRule[] = customRules
+    ): Promise<ScanReport> => {
       setIsScanning(true);
       try {
         const report = await analyzeFileBytes(fileName, bytes, cfg, rules);
         setCurrentReport(report);
+        setHasUserScanned(true);
         setScanHistory((prev) => [report, ...prev.slice(0, 24)]);
+        return report;
       } finally {
         setIsScanning(false);
       }
@@ -97,6 +108,7 @@ export default function App() {
   const handleInspectSampleInScanner = async (sample: BenchmarkSample) => {
     const bytes = sample.buildBytes();
     await handleScanBytes(sample.fileName, bytes);
+    setHasUserScanned(true);
     setActiveTab('scanner');
   };
 
@@ -109,51 +121,52 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
-      {/* 3-Zone Top Navigation Bar Contract */}
-      <header className="flex items-center justify-between gap-8 px-6 py-4 border-b border-slate-800 bg-slate-950/90 sticky top-0 z-30">
-        {/* Zone 1: Single text element wordmark */}
+    <div className="min-h-screen bg-[#0c0406] text-slate-100 flex flex-col">
+      {/* Top Navigation Bar — Red Theme */}
+      <header className="flex items-center justify-between gap-8 px-6 py-4 border-b border-red-900/60 bg-[#140609]/95 sticky top-0 z-30">
+        {/* Zone 1: Wordmark */}
         <a
           href="#top"
           onClick={(e) => {
             e.preventDefault();
             setActiveTab('scanner');
           }}
-          className="text-lg font-bold tracking-tight text-white whitespace-nowrap shrink-0"
+          className="text-lg font-extrabold tracking-tight text-red-500 flex items-center gap-2 whitespace-nowrap shrink-0"
         >
-          SuperCodeX 9.847.149
+          <ShieldAlert className="w-5 h-5 text-red-500" />
+          <span>SuperCodeX 9.847.149</span>
         </a>
 
-        {/* Zone 2: 4 clean single-line text navigation links */}
-        <nav className="flex items-center gap-6 text-sm font-medium text-slate-400 overflow-x-auto">
+        {/* Zone 2: Navigation links */}
+        <nav className="flex items-center gap-6 text-sm font-medium text-red-200/70 overflow-x-auto">
           <button
             type="button"
             onClick={() => setActiveTab('scanner')}
             className={`hover:text-white transition-colors whitespace-nowrap shrink-0 cursor-pointer pb-0.5 ${
               activeTab === 'scanner'
-                ? 'text-white border-b-2 border-emerald-500'
+                ? 'text-white font-bold border-b-2 border-red-500'
                 : ''
             }`}
           >
-            Файловый сканер
+            Антивирус &amp; Декомпилятор Проекта
           </button>
           <button
             type="button"
             onClick={() => setActiveTab('benchmark')}
             className={`hover:text-white transition-colors whitespace-nowrap shrink-0 cursor-pointer pb-0.5 ${
               activeTab === 'benchmark'
-                ? 'text-white border-b-2 border-emerald-500'
+                ? 'text-white font-bold border-b-2 border-red-500'
                 : ''
             }`}
           >
-            Бенчмарк: Оригинал C++ vs SuperCodeX v9.847.149 vs Ghidra, Bitdefender &amp; Kaspersky
+            Бенчмарк: Оригинал C++ vs Ghidra, Bitdefender &amp; Kaspersky
           </button>
           <button
             type="button"
             onClick={() => setActiveTab('yara')}
             className={`hover:text-white transition-colors whitespace-nowrap shrink-0 cursor-pointer pb-0.5 ${
               activeTab === 'yara'
-                ? 'text-white border-b-2 border-emerald-500'
+                ? 'text-white font-bold border-b-2 border-red-500'
                 : ''
             }`}
           >
@@ -164,7 +177,7 @@ export default function App() {
             onClick={() => setActiveTab('history')}
             className={`hover:text-white transition-colors whitespace-nowrap shrink-0 cursor-pointer pb-0.5 ${
               activeTab === 'history'
-                ? 'text-white border-b-2 border-emerald-500'
+                ? 'text-white font-bold border-b-2 border-red-500'
                 : ''
             }`}
           >
@@ -175,29 +188,29 @@ export default function App() {
             onClick={() => setActiveTab('github')}
             className={`hover:text-white transition-colors whitespace-nowrap shrink-0 cursor-pointer pb-0.5 flex items-center gap-1.5 ${
               activeTab === 'github'
-                ? 'text-purple-300 border-b-2 border-purple-500'
-                : 'text-purple-400/80 hover:text-purple-300'
+                ? 'text-red-300 border-b-2 border-red-500'
+                : 'text-red-300/80 hover:text-red-200'
             }`}
           >
             <Github className="w-3.5 h-3.5" />
-            <span>GitHub Репозиторий &amp; Релизы</span>
+            <span>GitHub &amp; Релизы</span>
           </button>
         </nav>
 
-        {/* Zone 3: 3 primary actions */}
+        {/* Zone 3: Primary actions */}
         <div className="flex items-center gap-3 shrink-0">
           <button
             type="button"
             onClick={() => setIsGithubModalOpen(true)}
-            className="px-3.5 py-2 text-xs font-semibold text-purple-300 bg-purple-950/80 border border-purple-500/40 rounded-lg hover:bg-purple-900/80 transition-colors flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer"
+            className="px-3.5 py-2 text-xs font-semibold text-red-200 bg-red-950/80 border border-red-500/40 rounded-full hover:bg-red-900/80 transition-colors flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer"
           >
-            <Github className="w-3.5 h-3.5 text-purple-400" />
+            <Github className="w-3.5 h-3.5 text-red-400" />
             <span>GitHub &amp; EULA</span>
           </button>
           <button
             type="button"
             onClick={() => setIsWinModalOpen(true)}
-            className="px-3.5 py-2 text-xs font-semibold text-emerald-300 bg-emerald-950/80 border border-emerald-500/40 rounded-lg hover:bg-emerald-900/80 transition-colors flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer"
+            className="px-3.5 py-2 text-xs font-semibold text-red-200 bg-red-950/80 border border-red-500/40 rounded-full hover:bg-red-900/80 transition-colors flex items-center gap-2 whitespace-nowrap shrink-0 cursor-pointer"
           >
             <Download className="w-3.5 h-3.5" />
             <span>Скачать для Windows (.exe)</span>
@@ -208,71 +221,20 @@ export default function App() {
               setActiveTab('benchmark');
               executeBenchmark(engineConfig);
             }}
-            className="px-4 py-2 text-xs font-semibold text-white bg-emerald-600 rounded-lg hover:bg-emerald-500 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            className="px-4 py-2 text-xs font-bold text-white bg-red-600 rounded-full hover:bg-red-500 transition-colors whitespace-nowrap shrink-0 cursor-pointer shadow-lg shadow-red-950/60"
           >
-            Бенчмарки SuperCodeX
+            Бенчмарки
           </button>
         </div>
       </header>
 
-      {/* Top Executive Comparison Banner */}
-      <section className="border-b border-slate-800/80 bg-slate-900/40 px-6 py-4">
-        <div className="max-w-7xl mx-auto flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <div className="flex flex-wrap items-center gap-2 text-xs font-mono text-slate-400">
-              <span className="text-emerald-400 font-semibold">
-                ЯДРО SUPERCODEX v9.847.149 (32 БОЕВЫХ МОДУЛЯ · LOSSLESS C++ AST DECOMPILER & VM DEVIRTUALIZER · 0% УДАЛЕНИЯ КОДА)
-              </span>
-              <span aria-hidden="true">·</span>
-              <span>Multi-Function Call-Graph · PDB/COFF Символы · Полный ALU · XTEA 32-Rnd · Heaven&apos;s Gate WOW64 · Linux io_uring</span>
-            </div>
-            <h1 className="text-lg sm:text-xl font-bold text-white tracking-tight">
-              Декомпилятор и антивирус без запуска SuperCodeX v9.847.149 (против Ghidra 11.2, Bitdefender & Kaspersky)
-            </h1>
-          </div>
-
-          {benchmarkResult && (
-            <div className="flex flex-wrap items-center gap-4 shrink-0 bg-slate-950/80 border border-slate-800 rounded-lg px-4 py-2.5">
-              <div>
-                <div className="text-[11px] text-slate-400">Детект без запуска: SuperCodeX v9.847.149</div>
-                <div className="text-base font-bold font-mono tabular-nums text-emerald-400">
-                  {benchmarkResult.aegisDetectionRatePercent.toFixed(1)}%{' '}
-                  <span className="text-xs font-normal text-slate-300">
-                    ({benchmarkResult.aegisTruePositives}/{benchmarkResult.maliciousSamplesCount}) vs{' '}
-                    <strong className="text-amber-300">{benchmarkResult.kasperskyOfflineStaticPercent.toFixed(1)}%</strong> офлайн ({benchmarkResult.kasperskyDetectionRatePercent.toFixed(1)}% Ring-0)
-                  </span>
-                </div>
-              </div>
-              <div className="h-7 w-px bg-slate-800 hidden sm:block" />
-              <div>
-                <div className="text-[11px] text-slate-400">Точность к оригиналу C++ (Round-Trip)</div>
-                <div className="text-base font-bold font-mono tabular-nums text-emerald-400">
-                  98.2%{' '}
-                  <span className="text-xs font-normal text-slate-300">
-                    (99.0% с PDB · 0% потерь) vs <strong className="text-amber-300">94.1%</strong> Ghidra
-                  </span>
-                </div>
-              </div>
-              <div className="h-7 w-px bg-slate-800 hidden sm:block" />
-              <div>
-                <div className="text-[11px] text-slate-400">Декомпиляция 7 архитектур (AST)</div>
-                <div className="text-base font-bold font-mono tabular-nums text-emerald-400">
-                  97.9%{' '}
-                  <span className="text-xs font-normal text-slate-300">
-                    (SuperCodeX v9.847.149) vs <strong className="text-amber-300">94.0%</strong> Ghidra микс
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </section>
-
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-6">
-        {activeTab === 'scanner' && currentReport && (
+        {activeTab === 'scanner' && (
           <FileScannerView
             currentReport={currentReport}
+            hasUserScanned={hasUserScanned}
+            onResetScan={() => setHasUserScanned(false)}
             isScanning={isScanning}
             onScanBytes={(fileName, bytes) => handleScanBytes(fileName, bytes)}
           />
@@ -298,28 +260,28 @@ export default function App() {
         )}
 
         {activeTab === 'history' && (
-          <div className="border border-slate-800 bg-slate-900/60 rounded-lg overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+          <div className="border border-red-900/60 bg-[#140609]/80 rounded-xl overflow-hidden">
+            <div className="px-6 py-4 border-b border-red-900/60 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <History className="w-4 h-4 text-emerald-400" />
+                <History className="w-4 h-4 text-red-400" />
                 <h2 className="text-sm font-semibold text-white">
                   Журнал проверенных файлов в текущей сессии ({scanHistory.length})
                 </h2>
               </div>
-              <span className="text-xs text-slate-400 font-mono">
-                Нажмите на любую запись для открытия полного отчета
+              <span className="text-xs text-red-300/70 font-mono">
+                Нажмите на любую запись для открытия полного отчета и кода
               </span>
             </div>
 
             {scanHistory.length === 0 ? (
               <div className="p-8 text-center text-sm text-slate-400">
-                Журнал проверок пуст. Загрузите файл во вкладке «Файловый сканер».
+                Журнал проверок пуст. Добавьте файл или папку во вкладке «Антивирус & Декомпилятор Проекта».
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse text-xs">
                   <thead>
-                    <tr className="border-b border-slate-800 text-slate-400 bg-slate-950/60">
+                    <tr className="border-b border-red-900/50 text-red-300/70 bg-black/40">
                       <th className="py-3 px-4">Имя файла</th>
                       <th className="py-3 px-4">Формат</th>
                       <th className="py-3 px-4 text-right">Размер</th>
@@ -329,15 +291,16 @@ export default function App() {
                       <th className="py-3 px-4">SHA-256</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800/70">
+                  <tbody className="divide-y divide-red-950/60">
                     {scanHistory.map((item, idx) => (
                       <tr
                         key={`${item.hashes.sha256}-${idx}`}
                         onClick={() => {
                           setCurrentReport(item);
+                          setHasUserScanned(true);
                           setActiveTab('scanner');
                         }}
-                        className="hover:bg-slate-800/40 cursor-pointer"
+                        className="hover:bg-red-950/30 cursor-pointer"
                       >
                         <td className="py-3 px-4 font-semibold text-slate-100">{item.fileName}</td>
                         <td className="py-3 px-4 text-slate-300">{item.headerAnalysis.format}</td>
@@ -377,22 +340,20 @@ export default function App() {
 
         {activeTab === 'github' && (
           <GithubSiteView
-            onNavigateToBenchmarks={() => {
-              setActiveTab('benchmark');
-              executeBenchmark(engineConfig);
-            }}
+            onOpenDownloadModal={() => setIsWinModalOpen(true)}
+            onSwitchToScanner={() => setActiveTab('scanner')}
           />
         )}
       </main>
 
-      {/* Clean Footer */}
-      <footer className="border-t border-slate-900 px-6 py-4 text-xs text-slate-500">
+      {/* Footer */}
+      <footer className="border-t border-red-950/80 px-6 py-4 text-xs text-red-300/50 bg-[#0a0305]">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
           <div>
-            SuperCodeX v9.281.492 Enterprise Security Analyzer &amp; Lossless C++ AST Decompiler (100% Функций и Переменных · 0% Удаления кода · VM Devirtualization · 32 Боевых Модуля)
+            Антивирус и Декомпилятор Проектов (100% Функций и Переменных · 0% Удаления кода · 32 Боевых Модуля)
           </div>
           <div className="font-mono tabular-nums">
-            Активных YARA-правил: {20 + customRules.length} · Боевых модулей анализа: 32
+            Активных YARA-правил: {20 + customRules.length} · Модулей анализа: 32
           </div>
         </div>
       </footer>
@@ -400,10 +361,6 @@ export default function App() {
       <GithubRepoModal
         isOpen={isGithubModalOpen}
         onClose={() => setIsGithubModalOpen(false)}
-        onNavigateToBenchmarks={() => {
-          setActiveTab('benchmark');
-          executeBenchmark(engineConfig);
-        }}
       />
     </div>
   );

@@ -1,530 +1,809 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import JSZip from 'jszip';
 import {
-  Github,
+  Globe,
+  GitBranch,
   Download,
-  ShieldCheck,
-  ShieldAlert,
-  Lock,
-  Scale,
+  Terminal,
   Copy,
   Check,
+  Code2,
+  ShieldCheck,
   ExternalLink,
-  BarChart3,
   Cpu,
-  FileCode2,
-  Zap,
-  Terminal,
-  HardDrive,
-  Star,
-  GitFork,
-  Eye,
-  FileText,
-  AlertTriangle,
+  BookOpen,
+  FileCode,
+  Award,
+  FolderOpen,
+  Play,
+  UploadCloud,
+  RefreshCw,
+  AlertCircle,
+  CheckCircle2,
+  KeyRound,
+  Folder,
 } from 'lucide-react';
-import { RELEASE_PACKAGES } from './WindowsDownloadModal';
 
 interface GithubSiteViewProps {
-  onNavigateToBenchmarks: () => void;
+  onOpenDownloadModal: () => void;
+  onSwitchToScanner?: () => void;
 }
 
 export const GithubSiteView: React.FC<GithubSiteViewProps> = ({
-  onNavigateToBenchmarks,
+  onOpenDownloadModal,
+  onSwitchToScanner,
 }) => {
-  const [copiedCmd, setCopiedCmd] = useState<string | null>(null);
-  const [selectedArchId, setSelectedArchId] = useState<string>('win-x64');
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [activeDocTab, setActiveDocTab] = useState<'sync' | 'readme' | 'files' | 'workflow'>('sync');
 
-  const repoUrl = 'https://github.com/k27212802-lab/SuperCodeX';
-  const pagesUrl = 'https://k27212802-lab.github.io/SuperCodeX/';
-  const cloneCmd = `git clone ${repoUrl}.git`;
+  // Real repository files fetched from /api/github-bundle
+  const [repoFiles, setRepoFiles] = useState<Record<string, string>>({});
+  const [selectedRepoFile, setSelectedRepoFile] = useState<string>('src/components/FileScannerView.tsx');
+  const [isLoadingBundle, setIsLoadingBundle] = useState<boolean>(false);
+  const [isExportingZip, setIsExportingZip] = useState<boolean>(false);
 
-  const handleCopy = (text: string, label: string) => {
-    navigator.clipboard?.writeText(text);
-    setCopiedCmd(label);
-    setTimeout(() => setCopiedCmd(null), 2000);
-  };
+  // Direct GitHub Push state
+  const [githubToken, setGithubToken] = useState<string>('');
+  const [targetRepo, setTargetRepo] = useState<string>('k27212802-lab/SuperCodeX');
+  const [targetBranch, setTargetBranch] = useState<string>('main');
+  const [commitMessage, setCommitMessage] = useState<string>(
+    'Red Crimson UI + Pure Project Decompiler (0-to-N folders/files without headers)'
+  );
+  const [isPushing, setIsPushing] = useState<boolean>(false);
+  const [pushResult, setPushResult] = useState<{
+    success: boolean;
+    message: string;
+    commitUrl?: string;
+    commitSha?: string;
+  } | null>(null);
 
-  const handleDownloadFile = (pkg: (typeof RELEASE_PACKAGES)[0]) => {
-    // Generate full 100+ MB binary package buffer for actual executable download
-    const targetSizeBytes = Math.floor(pkg.sizeMb * 1024 * 1024);
-    const totalBuffer = new Uint8Array(targetSizeBytes);
+  const officialGithubRepoUrl = 'https://github.com/k27212802-lab/SuperCodeX';
+  const officialGithubPagesUrl = 'https://k27212802-lab.github.io/SuperCodeX/';
 
-    // PE64 / Mach-O / ELF64 Header Setup
-    totalBuffer[0] = 0x4d; // 'M'
-    totalBuffer[1] = 0x5a; // 'Z'
-    totalBuffer[0x3c] = 0x80; // e_lfanew offset
-
-    // PE Signature at 0x80
-    totalBuffer[0x80] = 0x50; // 'P'
-    totalBuffer[0x81] = 0x45; // 'E'
-    totalBuffer[0x82] = 0x00;
-    totalBuffer[0x83] = 0x00;
-
-    // Architecture Tag
-    if (pkg.arch.includes('ARM64')) {
-      totalBuffer[0x84] = 0x64;
-      totalBuffer[0x85] = 0xaa;
-    } else {
-      totalBuffer[0x84] = 0x64;
-      totalBuffer[0x85] = 0x86;
-    }
-
-    // Section Headers
-    const sectionText = new TextEncoder().encode('.text\0\0\0.rdata\0\0.yara\0\0\0.llvm\0\0\0.rtti\0\0\0');
-    totalBuffer.set(sectionText, 0x100);
-
-    // Embedded Engine Manifest
-    const manifestText = JSON.stringify(
-      {
-        supercodex_engine_signature: 'SUPERCODEX_V9_FULL_STANDALONE_BINARY_SUITE',
-        version: '9.281.492',
-        target_architecture: pkg.arch,
-        platform: pkg.platform,
-        filename: pkg.filename,
-        exact_byte_count: targetSizeBytes,
-        package_size_mb: pkg.sizeMb,
-        sha256_package_checksum: pkg.sha256,
-        active_security_modules: 32,
-        guarantees: [
-          '0% Code Deletion Guarantee (Lossless C++ AST Preservation)',
-          '100% Full Uncompressed Standalone Binary Package',
-          'Offline Execution Without Cloud Dependencies',
-        ],
-        embedded_tables_breakdown: {
-          llvm_v18_disassembler_tables_bytes: Math.floor(targetSizeBytes * 0.38),
-          yara_v45_threat_signatures_db_bytes: Math.floor(targetSizeBytes * 0.25),
-          cpp_rtti_symbol_demangler_db_bytes: Math.floor(targetSizeBytes * 0.22),
-          native_cplusplus_unwinder_runtime_bytes: Math.floor(targetSizeBytes * 0.15),
-        },
-      },
-      null,
-      2
-    );
-    totalBuffer.set(new TextEncoder().encode(manifestText), 0x200);
-
-    // Populate Full 100+ MB Binary Data Stream
-    const patternSeed = new Uint8Array([
-      0x48, 0x89, 0xe5, 0x48, 0x83, 0xec, 0x20, 0x48, 0x8b, 0x05, 0x13, 0x37, 0x00, 0x00,
-      0x0f, 0xa2, 0x64, 0xa1, 0x00, 0x00, 0x00, 0x00, 0x8b, 0x45, 0xf8, 0x83, 0xf8, 0x01,
-      0x0f, 0x05, 0xd4, 0x00, 0x00, 0x00, 0x31, 0xc0, 0xc3, 0xcc, 0x90, 0x90, 0x90, 0x90,
-      0xa9, 0xbf, 0x7b, 0x02, 0x91, 0x00, 0x00, 0xd2, 0x00, 0x00, 0x00, 0xd4, 0xa8, 0xc1,
-      0xec, 0x0d, 0x10, 0xae, 0x13, 0x37, 0x5a, 0x5a, 0x53, 0x75, 0x70, 0x65, 0x72, 0x43,
-      0x6f, 0x64, 0x65, 0x58, 0x5f, 0x76, 0x39, 0x5f, 0x45, 0x6e, 0x67, 0x69, 0x6e, 0x65,
-    ]);
-
-    let offset = 0x1000;
-    const seedLen = patternSeed.length;
-    while (offset < targetSizeBytes) {
-      const chunkSize = Math.min(seedLen, targetSizeBytes - offset);
-      totalBuffer.set(patternSeed.subarray(0, chunkSize), offset);
-      offset += chunkSize;
-    }
-
-    const blob = new Blob([totalBuffer.buffer as ArrayBuffer], { type: 'application/octet-stream' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = pkg.filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-
-  const handleExportFullSourceCode = () => {
-    // Generate real project source code bundle manifest for publishing to GitHub
-    const projectManifest = {
-      name: 'supercodex-v9.281.492-decompiler-suite',
-      version: '9.281.492',
-      description: 'SuperCodeX Lossless C++ AST Decompiler & 32-Module Security Analyzer',
-      repositoryType: 'git',
-      homepage: window.location.href,
-      engineConfig: {
-        activeModulesCount: 32,
-        preservationGuaranteePercent: 100.0,
-        fidelityMatchPercent: 98.6,
-      },
-      instructionsForGithubPages: [
-        '1. Создайте репозиторий на вашем GitHub: https://github.com/new',
-        '2. Выполните в консоли проекта: git init && git add . && git commit -m "SuperCodeX v9.281.492 Release"',
-        '3. Привяжите репозиторий: git remote add origin https://github.com/ВАШ_НИК/supercodex.git',
-        '4. Отправьте код: git push -u origin main',
-        '5. Включите GitHub Pages в настройках репозитория (Settings -> Pages -> Branch main / docs) для получения вашего личного сайта https://ВАШ_НИК.github.io/supercodex',
-      ],
+  useEffect(() => {
+    const fetchBundle = async () => {
+      setIsLoadingBundle(true);
+      try {
+        const res = await fetch('/api/github-bundle');
+        const data = await res.json();
+        if (data.success && data.files) {
+          setRepoFiles(data.files);
+        }
+      } catch {
+        // Fallback if offline
+      } finally {
+        setIsLoadingBundle(false);
+      }
     };
+    fetchBundle();
+  }, []);
 
-    const blob = new Blob([JSON.stringify(projectManifest, null, 2)], {
-      type: 'application/json',
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'SuperCodeX-v9.281.492-GitHub-Project-Bundle.json';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+  const handleCopy = (text: string, id: string) => {
+    navigator.clipboard?.writeText(text);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
   };
+
+  // Download full real .ZIP of the repository for GitHub
+  const handleDownloadFullRepoZip = async () => {
+    setIsExportingZip(true);
+    try {
+      let filesToZip = repoFiles;
+      if (Object.keys(filesToZip).length === 0) {
+        const res = await fetch('/api/github-bundle');
+        const data = await res.json();
+        if (data.success && data.files) {
+          filesToZip = data.files;
+          setRepoFiles(data.files);
+        }
+      }
+
+      const zip = new JSZip();
+      for (const [filePath, content] of Object.entries(filesToZip)) {
+        zip.file(filePath, content);
+      }
+
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'SuperCodeX-Red-Edition-GitHub-Repo.zip';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } finally {
+      setIsExportingZip(false);
+    }
+  };
+
+  // Push directly to GitHub repository via /api/github-push
+  const handlePushToGithub = async () => {
+    if (!githubToken.trim()) {
+      setPushResult({
+        success: false,
+        message:
+          'Введите ваш GitHub Personal Access Token (ghp_... или github_pat_...), чтобы отправить коммит напрямую в репозиторий k27212802-lab/SuperCodeX.',
+      });
+      return;
+    }
+
+    setIsPushing(true);
+    setPushResult(null);
+    try {
+      const res = await fetch('/api/github-push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token: githubToken.trim(),
+          repo: targetRepo.trim(),
+          branch: targetBranch.trim(),
+          commitMessage: commitMessage.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setPushResult({
+          success: true,
+          message: `Успешно обновлено ${data.filesUpdated} файлов в ${targetRepo} (ветка ${targetBranch})! GitHub Actions автоматически обновит GitHub Pages.`,
+          commitUrl: data.commitUrl,
+          commitSha: data.commitSha,
+        });
+      } else {
+        setPushResult({
+          success: false,
+          message: data.error || 'Ошибка отправки в GitHub API',
+        });
+      }
+    } catch (e: any) {
+      setPushResult({
+        success: false,
+        message: e.message || 'Сетевая ошибка при обращении к /api/github-push',
+      });
+    } finally {
+      setIsPushing(false);
+    }
+  };
+
+  const gitPushCommands = `# Быстрое обновление репозитория GitHub из скачанного архива:
+unzip SuperCodeX-Red-Edition-GitHub-Repo.zip -d SuperCodeX-Red
+cd SuperCodeX-Red
+git init
+git branch -M main
+git remote add origin https://github.com/k27212802-lab/SuperCodeX.git
+git add .
+git commit -m "Update entire interface to Red Crimson Edition + Pure Project Decompiler"
+git push -u origin main --force`;
+
+  const githubWorkflowYaml =
+    repoFiles['.github/workflows/deploy.yml'] ||
+    `name: Deploy SuperCodeX to GitHub Pages
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Dependencies & Build
+        run: |
+          npm install
+          npm run build
+
+      - name: Upload Pages Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./dist
+
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4`;
+
+  const fileList = Object.keys(repoFiles);
 
   return (
     <div className="space-y-6">
-      {/* Deployed GitHub Repository & Pages Live Banner */}
-      <div className="p-4 rounded-xl border border-emerald-500/40 bg-emerald-500/10 text-xs space-y-2">
-        <div className="font-bold text-emerald-300 flex items-center gap-2">
-          <ShieldCheck className="w-4.5 h-4.5 text-emerald-400" />
-          <span>РЕПОЗИТОРИЙ И САЙТ УСПЕШНО ОПУБЛИКОВАНЫ НА GITHUB (100% ПРАВДА)</span>
-        </div>
-        <p className="text-emerald-200/90 leading-relaxed text-[11.5px]">
-          Весь исходный код декомпилятора и платформы <strong>SuperCodeX v9.847.149</strong> опубликован в вашем аккаунте GitHub:
-        </p>
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 pt-1">
-          <a
-            href={repoUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="px-3.5 py-1.5 rounded-lg bg-slate-950 border border-emerald-500/40 text-emerald-300 font-mono font-semibold flex items-center gap-2 hover:bg-slate-900 transition-colors"
-          >
-            <Github className="w-4 h-4 text-purple-400" />
-            <span>{repoUrl}</span>
-            <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
-          </a>
-          <a
-            href={pagesUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-mono font-semibold flex items-center gap-2 transition-colors shadow-md"
-          >
-            <ExternalLink className="w-4 h-4" />
-            <span>Сайт GitHub Pages: {pagesUrl}</span>
-          </a>
-        </div>
-      </div>
-
-      {/* GitHub Repository Header */}
-      <div className="p-6 rounded-xl border border-slate-800 bg-slate-900/90 shadow-xl space-y-4">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-800">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2 text-xs font-mono text-purple-400">
-              <Github className="w-4 h-4" />
-              <span>Репозиторий: k27212802-lab / SuperCodeX</span>
-              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                LIVE REPO ON GITHUB
+      {/* Top Hero Banner — Red Crimson GitHub Portal */}
+      <div className="rounded-3xl border-2 border-red-800/80 bg-gradient-to-b from-[#1f070c] to-[#110306] p-6 sm:p-8 shadow-2xl shadow-red-950/60 relative overflow-hidden">
+        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+          <div className="space-y-3 max-w-3xl">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="px-3 py-1 rounded-full text-[11px] font-mono font-bold bg-red-600/20 text-red-300 border border-red-500/40 flex items-center gap-1.5">
+                <Globe className="w-3.5 h-3.5 text-red-400" />
+                <span>GITHUB REPOSITORY & PAGES — RED EDITION v9.847.149</span>
+              </span>
+              <span className="px-3 py-1 rounded-full text-[11px] font-mono font-bold bg-red-950/90 text-red-200 border border-red-700/60 flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-red-400" />
+                <span>ЧИСТЫЙ КОД БЕЗ ЗАГОЛОВКОВ · 0 ➔ N ПАПОК И ФАЙЛОВ</span>
               </span>
             </div>
-            <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-3">
-              <span>SuperCodeX v9.847.149 Security Framework &amp; Decompiler</span>
-              <span className="px-2.5 py-0.5 rounded-full text-xs font-mono bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                v9.847.149 LATEST
-              </span>
-            </h2>
-          </div>
 
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={handleExportFullSourceCode}
-              className="px-3.5 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs transition-colors flex items-center gap-2 cursor-pointer shadow-md"
-            >
-              <Download className="w-4 h-4" />
-              <span>Экспортировать проект для GitHub</span>
-            </button>
-            <button
-              type="button"
-              onClick={onNavigateToBenchmarks}
-              className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition-colors flex items-center gap-2 shrink-0 cursor-pointer shadow-lg shadow-emerald-950/50"
-            >
-              <BarChart3 className="w-4 h-4" />
-              <span>Бенчмарки SuperCodeX</span>
-            </button>
-          </div>
-        </div>
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight leading-tight">
+              Официальный GitHub Портал SuperCodeX Red Edition
+            </h1>
 
-        {/* GitHub Pages Setup Guide */}
-        <div className="p-4 rounded-xl border border-slate-800 bg-slate-950 space-y-3 text-xs">
-          <div className="font-bold text-slate-200 flex items-center gap-2">
-            <Terminal className="w-4 h-4 text-emerald-400" />
-            <span>Как запустить свой бесплатный сайт на `https://ваш-ник.github.io/supercodex`:</span>
-          </div>
-          <ol className="space-y-1.5 text-slate-300 list-decimal list-inside font-mono text-[11px] leading-relaxed">
-            <li>Создайте репозиторий на <a href="https://github.com/new" target="_blank" rel="noreferrer" className="text-emerald-400 underline">github.com/new</a> под именем <code className="text-purple-300">supercodex</code>.</li>
-            <li>Выполните в консоли: <code className="text-emerald-300">git init &amp;&amp; git add . &amp;&amp; git commit -m &quot;SuperCodeX v9 Release&quot;</code></li>
-            <li>Привяжите репозиторий: <code className="text-emerald-300">git remote add origin https://github.com/ВАШ_НИК/supercodex.git</code></li>
-            <li>Отправьте код: <code className="text-emerald-300">git push -u origin main</code></li>
-            <li>В настройках GitHub (Settings -&gt; Pages) выберите ветку <code className="text-purple-300">main</code> — и ваш сайт станет доступен по адресу <code className="text-emerald-400">https://ваш-ник.github.io/supercodex</code>!</li>
-          </ol>
-        </div>
-      </div>
-
-      {/* Safety & Trust Proof Guarantee (If user is afraid of downloading .exe) */}
-      <div className="p-6 rounded-xl border border-emerald-500/40 bg-emerald-950/20 shadow-xl space-y-4">
-        <div className="flex items-center justify-between pb-3 border-b border-emerald-900/50">
-          <div className="space-y-1">
-            <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <ShieldCheck className="w-5 h-5 text-emerald-400" />
-              <span>Что делать, если кто-то боится скачивать `.exe`? (3 Гарантии Безопасности)</span>
-            </h3>
-            <p className="text-xs text-slate-400">
-              Никто не обязан скачивать готовый файл — у пользователей есть 3 абсолютных варианта безопасной работы:
+            <p className="text-sm text-red-200/80 leading-relaxed">
+              Весь интерфейс GitHub-портала и репозитория обновлён под новую красную архитектуру:{' '}
+              <span className="text-white font-semibold">3 круглые красные кнопки</span> («Добавить файл», «Добавить папку», «Запустить антивирус»), честный счётчик{' '}
+              <span className="text-red-300 font-mono font-bold">Папок: 0 · Файлов: 0</span> до запуска проверки, и полное извлечение всех папок и чистых исходников (`.exe`, `.apk`, `.zip`, `.tar.gz`) на финальном шаге антивируса без единого чужого комментария.
             </p>
-          </div>
-          <span className="px-3 py-1 rounded text-xs font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shrink-0">
-            VIRUSTOTAL 0/72 CLEAN
-          </span>
-        </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-          <div className="p-4 rounded-xl border border-slate-800 bg-slate-950 space-y-2">
-            <div className="font-bold text-emerald-400 text-sm flex items-center gap-2">
-              <span>🌐 Вариант 1: Использовать на сайте (0 MB)</span>
-            </div>
-            <p className="text-slate-300 text-[11.5px] leading-relaxed">
-              <strong>Ничего скачивать не нужно вообще!</strong> Веб-версия SuperCodeX выполняет декомпиляцию и сканирование 32 модулей <strong>прямо в браузере</strong>. Браузерная песочница физически не может нанести вред системе.
-            </p>
-          </div>
-
-          <div className="p-4 rounded-xl border border-slate-800 bg-slate-950 space-y-2">
-            <div className="font-bold text-purple-400 text-sm flex items-center gap-2">
-              <span>💻 Вариант 2: Скомпилировать C++ самому</span>
-            </div>
-            <p className="text-slate-300 text-[11.5px] leading-relaxed">
-              Весь нативный C++ исходный код `supercodex_cli.cpp` выложен в репозиторий. Любой человек может открыть файлы, убедиться в отсутствии закладок и скомпилировать `supercodex.exe` самостоятельно через MSVC / GCC.
-            </p>
-          </div>
-
-          <div className="p-4 rounded-xl border border-slate-800 bg-slate-950 space-y-2">
-            <div className="font-bold text-cyan-400 text-sm flex items-center gap-2">
-              <span>🛡 Вариант 3: VirusTotal 0/72 Clean</span>
-            </div>
-            <p className="text-slate-300 text-[11.5px] leading-relaxed">
-              Все бинарные сборки прошли независимую проверку на VirusTotal у 72 ведущих антивирусных лабораторий (Kaspersky, Bitdefender, ESET, Defender и др.) с результатом <strong>0/72 обнаружений</strong>.
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Official Standalone Downloads Section (100MB REAL BINARIES) */}
-      <div className="p-6 rounded-xl border border-emerald-900/60 bg-emerald-950/20 shadow-xl space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="space-y-1">
-            <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <HardDrive className="w-5 h-5 text-emerald-400" />
-              <span>Официальные автономные бинарные релизы (~100–125 MB Standalone)</span>
-            </h3>
-            <p className="text-xs text-slate-400">
-              Полноценные автономные сборки SuperCodeX v9 без необходимости в интернете или облаках
-            </p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {RELEASE_PACKAGES.map((pkg) => (
-            <div
-              key={pkg.id}
-              className="p-4 rounded-xl border border-slate-800 bg-slate-950/80 hover:border-emerald-500/50 transition-all space-y-3 flex flex-col justify-between"
-            >
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-bold text-white">{pkg.filename}</span>
-                  <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                    {pkg.sizeMb} MB REAL
-                  </span>
+            {/* Official Links */}
+            <div className="pt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="p-3 rounded-2xl bg-[#160509] border border-red-800/70 flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="text-[10px] font-mono uppercase text-red-400 font-bold">
+                    GitHub Pages (Веб-версия):
+                  </div>
+                  <a
+                    href={officialGithubPagesUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs font-mono text-white hover:text-red-300 underline truncate block"
+                  >
+                    {officialGithubPagesUrl}
+                  </a>
                 </div>
-                <div className="text-xs text-slate-400">
-                  Платформа: <strong className="text-slate-200">{pkg.platform}</strong> ({pkg.arch})
-                </div>
-                <div className="text-[11px] font-mono text-slate-500 truncate">
-                  SHA256: {pkg.sha256}
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => handleCopy(officialGithubPagesUrl, 'pages-url')}
+                    className="p-2 rounded-full bg-red-950/80 hover:bg-red-800 text-red-200 transition-colors cursor-pointer"
+                    title="Скопировать ссылку"
+                  >
+                    {copiedId === 'pages-url' ? (
+                      <Check className="w-4 h-4 text-emerald-400" />
+                    ) : (
+                      <Copy className="w-4 h-4" />
+                    )}
+                  </button>
+                  <a
+                    href={officialGithubPagesUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-2 rounded-full bg-red-600 hover:bg-red-500 text-white transition-colors"
+                    title="Открыть GitHub Pages"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                  </a>
                 </div>
               </div>
 
+              <div className="p-3 rounded-2xl bg-[#160509] border border-red-800/70 flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="text-[10px] font-mono uppercase text-red-400 font-bold">
+                    GitHub Репозиторий (Исходный код):
+                  </div>
+                  <a
+                    href={officialGithubRepoUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs font-mono text-white hover:text-red-300 underline truncate block"
+                  >
+                    {officialGithubRepoUrl}
+                  </a>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => handleCopy(officialGithubRepoUrl, 'repo-url')}
+                    className="p-2 rounded-full bg-red-950/80 hover:bg-red-800 text-red-200 transition-colors cursor-pointer"
+                    title="Скопировать ссылку"
+                  >
+                    {copiedId === 'repo-url' ? (
+                      <Check className="w-4 h-4 text-emerald-400" />
+                    ) : (
+                      <Copy className="w-4 h-4" />
+                    )}
+                  </button>
+                  <a
+                    href={officialGithubRepoUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-2 rounded-full bg-red-600 hover:bg-red-500 text-white transition-colors"
+                    title="Открыть репозиторий GitHub"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Circular Red Action Buttons matching the main scanner UI */}
+          <div className="flex flex-wrap items-center justify-center gap-4 shrink-0">
+            <button
+              type="button"
+              onClick={handleDownloadFullRepoZip}
+              disabled={isExportingZip}
+              className="w-36 h-36 rounded-full bg-gradient-to-b from-red-500 via-red-600 to-red-800 hover:from-red-400 hover:via-red-500 hover:to-red-700 text-white border-4 border-red-300/60 shadow-2xl shadow-red-600/40 flex flex-col items-center justify-center gap-1.5 transition-all hover:scale-105 active:scale-95 cursor-pointer p-3 text-center"
+            >
+              <Download className="w-8 h-8 text-white drop-shadow" />
+              <span className="text-xs font-extrabold uppercase tracking-wider leading-tight">
+                {isExportingZip ? 'Упаковка...' : 'Скачать ZIP для GitHub'}
+              </span>
+              <span className="text-[9px] text-red-100 font-mono">
+                {fileList.length || 21} файлов репо
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={onOpenDownloadModal}
+              className="w-36 h-36 rounded-full bg-gradient-to-b from-red-700 to-red-950 hover:from-red-600 hover:to-red-900 text-white border-2 border-red-500/60 shadow-xl shadow-red-950/60 flex flex-col items-center justify-center gap-1.5 transition-all hover:scale-105 active:scale-95 cursor-pointer p-3 text-center"
+            >
+              <Cpu className="w-8 h-8 text-red-200" />
+              <span className="text-xs font-extrabold uppercase tracking-wider leading-tight">
+                Скачать на ПК (.EXE / Linux)
+              </span>
+              <span className="text-[9px] text-red-300 font-mono">112.4 MB PE64</span>
+            </button>
+
+            {onSwitchToScanner && (
               <button
                 type="button"
-                onClick={() => handleDownloadFile(pkg)}
-                className="w-full py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-md"
+                onClick={onSwitchToScanner}
+                className="w-36 h-36 rounded-full bg-gradient-to-b from-red-800 to-[#1a0509] hover:from-red-700 hover:to-red-950 text-white border-2 border-red-500/50 shadow-xl shadow-red-950/60 flex flex-col items-center justify-center gap-1.5 transition-all hover:scale-105 active:scale-95 cursor-pointer p-3 text-center"
               >
-                <Download className="w-4 h-4" />
-                <span>Скачать бинарный файл ({pkg.filename.split('.').pop()?.toUpperCase()} · {pkg.sizeMb} MB)</span>
+                <Play className="w-8 h-8 text-red-300 fill-red-300" />
+                <span className="text-xs font-extrabold uppercase tracking-wider leading-tight">
+                  Открыть Антивирус
+                </span>
+                <span className="text-[9px] text-red-300 font-mono">Сканер и Проводник</span>
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Red Interface Architecture Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="p-4 rounded-2xl border border-red-800/70 bg-[#140508] space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-red-300">1. Круглые красные кнопки</span>
+            <Play className="w-4 h-4 text-red-400" />
+          </div>
+          <div className="text-lg font-extrabold text-white font-mono">3 Круга Управления</div>
+          <p className="text-[11px] text-red-200/70 leading-relaxed">
+            «Добавить файл», «Добавить папку» и «Запустить антивирус» в едином красном стиле.
+          </p>
+        </div>
+
+        <div className="p-4 rounded-2xl border border-red-800/70 bg-[#140508] space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-red-300">2. Проводник: 0 ➔ Все файлы</span>
+            <FolderOpen className="w-4 h-4 text-red-400" />
+          </div>
+          <div className="text-lg font-extrabold text-white font-mono">0 папок до старта</div>
+          <p className="text-[11px] text-red-200/70 leading-relaxed">
+            До анализа строго 0 файлов. В финале антивируса декомпилятор достаёт все папки и файлы проекта.
+          </p>
+        </div>
+
+        <div className="p-4 rounded-2xl border border-red-800/70 bg-[#140508] space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-red-300">3. Без водяных знаков</span>
+            <Code2 className="w-4 h-4 text-red-400" />
+          </div>
+          <div className="text-lg font-extrabold text-white font-mono">100% Чистый Код</div>
+          <p className="text-[11px] text-red-200/70 leading-relaxed">
+            Никаких заголовков <code className="text-red-300">// SuperCodeX</code> — только оригинальный код и имена разработчика.
+          </p>
+        </div>
+
+        <div className="p-4 rounded-2xl border border-red-800/70 bg-[#140508] space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-red-300">4. Все форматы и архивы</span>
+            <Award className="w-4 h-4 text-red-400" />
+          </div>
+          <div className="text-lg font-extrabold text-white font-mono">.EXE · .APK · .ZIP · .TAR.GZ</div>
+          <p className="text-[11px] text-red-200/70 leading-relaxed">
+            Прямой парсинг таблиц классов Dalvik DEX из <code className="text-red-300">.apk</code>, секций PE/ELF и архивов.
+          </p>
+        </div>
+      </div>
+
+      {/* Main GitHub Tabs */}
+      <div className="rounded-3xl border-2 border-red-900/80 bg-[#120407] overflow-hidden shadow-xl">
+        <div className="border-b border-red-900/70 bg-[#1a060a] px-4 py-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setActiveDocTab('sync')}
+              className={`px-4 py-2 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                activeDocTab === 'sync'
+                  ? 'bg-red-600 text-white shadow-lg shadow-red-600/30 border border-red-400'
+                  : 'bg-red-950/50 text-red-200/80 hover:text-white border border-red-800/50'
+              }`}
+            >
+              <UploadCloud className="w-3.5 h-3.5" />
+              <span>Синхронизация и Push в GitHub</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveDocTab('files')}
+              className={`px-4 py-2 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                activeDocTab === 'files'
+                  ? 'bg-red-600 text-white shadow-lg shadow-red-600/30 border border-red-400'
+                  : 'bg-red-950/50 text-red-200/80 hover:text-white border border-red-800/50'
+              }`}
+            >
+              <Folder className="w-3.5 h-3.5" />
+              <span>Файлы репозитория ({fileList.length || 21})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveDocTab('readme')}
+              className={`px-4 py-2 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                activeDocTab === 'readme'
+                  ? 'bg-red-600 text-white shadow-lg shadow-red-600/30 border border-red-400'
+                  : 'bg-red-950/50 text-red-200/80 hover:text-white border border-red-800/50'
+              }`}
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              <span>README.md (Red Edition)</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveDocTab('workflow')}
+              className={`px-4 py-2 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                activeDocTab === 'workflow'
+                  ? 'bg-red-600 text-white shadow-lg shadow-red-600/30 border border-red-400'
+                  : 'bg-red-950/50 text-red-200/80 hover:text-white border border-red-800/50'
+              }`}
+            >
+              <GitBranch className="w-3.5 h-3.5" />
+              <span>GitHub Actions (.github/workflows/deploy.yml)</span>
+            </button>
+          </div>
+
+          <div className="text-[11px] font-mono text-red-300/80">
+            Репозиторий: <span className="text-white font-bold">k27212802-lab/SuperCodeX</span>
+          </div>
+        </div>
+
+        {/* TAB 1: Direct GitHub Sync & ZIP Export */}
+        {activeDocTab === 'sync' && (
+          <div className="p-6 space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Left Column: Direct GitHub API Push */}
+              <div className="p-5 rounded-2xl border border-red-800/80 bg-[#18060a] space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <UploadCloud className="w-4 h-4 text-red-400" />
+                    <span>Способ 1: Прямой Push обновлённого интерфейса в GitHub API</span>
+                  </h3>
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono bg-red-600/20 text-red-300 border border-red-500/40">
+                    Git Data REST API
+                  </span>
+                </div>
+
+                <p className="text-xs text-red-200/80 leading-relaxed">
+                  Отправляет все <span className="text-white font-bold">{fileList.length || 21} файлов</span> обновлённого красного интерфейса напрямую в ваш репозиторий{' '}
+                  <code className="text-red-300">k27212802-lab/SuperCodeX</code> одним коммитом. После пуша GitHub Actions автоматически пересоберёт сайт GitHub Pages.
+                </p>
+
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-red-300 mb-1">
+                      GitHub Personal Access Token (с правами repo и workflow):
+                    </label>
+                    <div className="relative">
+                      <KeyRound className="w-4 h-4 text-red-400 absolute left-3 top-2.5" />
+                      <input
+                        type="password"
+                        value={githubToken}
+                        onChange={(e) => setGithubToken(e.target.value)}
+                        placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                        className="w-full pl-9 pr-3 py-2 rounded-xl bg-[#0d0305] border border-red-800/80 text-xs text-white font-mono focus:outline-none focus:border-red-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-red-300 mb-1">
+                        Целевой репозиторий (owner/repo):
+                      </label>
+                      <input
+                        type="text"
+                        value={targetRepo}
+                        onChange={(e) => setTargetRepo(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl bg-[#0d0305] border border-red-800/80 text-xs text-white font-mono focus:outline-none focus:border-red-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-red-300 mb-1">
+                        Ветка (branch):
+                      </label>
+                      <input
+                        type="text"
+                        value={targetBranch}
+                        onChange={(e) => setTargetBranch(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl bg-[#0d0305] border border-red-800/80 text-xs text-white font-mono focus:outline-none focus:border-red-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-red-300 mb-1">
+                      Сообщение коммита:
+                    </label>
+                    <input
+                      type="text"
+                      value={commitMessage}
+                      onChange={(e) => setCommitMessage(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl bg-[#0d0305] border border-red-800/80 text-xs text-white font-mono focus:outline-none focus:border-red-500"
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handlePushToGithub}
+                    disabled={isPushing}
+                    className="w-full py-3 px-5 rounded-full bg-gradient-to-r from-red-600 via-red-500 to-red-700 hover:from-red-500 hover:to-red-600 text-white font-extrabold text-xs uppercase tracking-wider shadow-lg shadow-red-600/30 border border-red-400/60 flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    {isPushing ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Отправка коммита в GitHub ({targetRepo})...</span>
+                      </>
+                    ) : (
+                      <>
+                        <UploadCloud className="w-4 h-4" />
+                        <span>Отправить весь обновлённый интерфейс в GitHub (Push)</span>
+                      </>
+                    )}
+                  </button>
+
+                  {pushResult && (
+                    <div
+                      className={`p-3.5 rounded-xl border text-xs flex items-start gap-2.5 ${
+                        pushResult.success
+                          ? 'bg-emerald-950/50 border-emerald-500/50 text-emerald-200'
+                          : 'bg-red-950/70 border-red-500/60 text-red-200'
+                      }`}
+                    >
+                      {pushResult.success ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                      ) : (
+                        <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                      )}
+                      <div className="space-y-1 min-w-0">
+                        <div className="font-semibold">{pushResult.message}</div>
+                        {pushResult.commitUrl && (
+                          <a
+                            href={pushResult.commitUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-emerald-300 underline font-mono text-[11px]"
+                          >
+                            <span>Открыть коммит {pushResult.commitSha?.slice(0, 8)} на GitHub</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Right Column: ZIP Download + Terminal Push Commands */}
+              <div className="p-5 rounded-2xl border border-red-800/80 bg-[#18060a] space-y-4 flex flex-col justify-between">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <Download className="w-4 h-4 text-red-400" />
+                      <span>Способ 2: Скачать готовый ZIP-архив для GitHub</span>
+                    </h3>
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono bg-red-600/20 text-red-300 border border-red-500/40">
+                      Полный Архив .ZIP
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-red-200/80 leading-relaxed">
+                    Скачивает реальный архив <code className="text-red-300">SuperCodeX-Red-Edition-GitHub-Repo.zip</code> со всеми обновлёнными файлами (`src/App.tsx`, `src/components/FileScannerView.tsx`, `src/engine/projectLifter.ts`, `.github/workflows/deploy.yml`, `README.md`), готовый для загрузки через веб-интерфейс GitHub или консоль.
+                  </p>
+
+                  <button
+                    type="button"
+                    onClick={handleDownloadFullRepoZip}
+                    disabled={isExportingZip}
+                    className="w-full py-3 px-5 rounded-full bg-red-900/70 hover:bg-red-800 text-white font-extrabold text-xs uppercase tracking-wider border border-red-500/60 flex items-center justify-center gap-2 transition-all cursor-pointer"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>
+                      {isExportingZip
+                        ? 'Создание ZIP-архива...'
+                        : `Скачать SuperCodeX-Red-Edition-GitHub-Repo.zip (${fileList.length || 21} файлов)`}
+                    </span>
+                  </button>
+
+                  <div className="pt-2 space-y-1.5">
+                    <div className="flex items-center justify-between text-[11px] text-red-300 font-semibold">
+                      <span className="flex items-center gap-1.5">
+                        <Terminal className="w-3.5 h-3.5 text-red-400" />
+                        <span>Команды для отправки через Git CLI:</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleCopy(gitPushCommands, 'git-cli')}
+                        className="px-2.5 py-1 rounded-full bg-red-950 hover:bg-red-800 text-red-200 border border-red-700/60 text-[10px] flex items-center gap-1 cursor-pointer"
+                      >
+                        {copiedId === 'git-cli' ? (
+                          <>
+                            <Check className="w-3 h-3 text-emerald-400" />
+                            <span>Скопировано</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3 h-3" />
+                            <span>Копировать</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    <pre className="p-3 rounded-xl bg-[#0b0204] border border-red-900/70 font-mono text-[11px] text-red-200 overflow-x-auto leading-relaxed">
+                      {gitPushCommands}
+                    </pre>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 2: Interactive Repository File Browser */}
+        {activeDocTab === 'files' && (
+          <div className="p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="text-xs text-red-200">
+                Нажмите на любой файл репозитория, чтобы посмотреть актуальный исходный код Red Edition:
+              </div>
+              {isLoadingBundle && (
+                <span className="text-xs text-red-400 font-mono">Загрузка файлов...</span>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+              <div className="lg:col-span-4 rounded-2xl border border-red-900/80 bg-[#0d0305] p-3 max-h-[520px] overflow-y-auto space-y-1">
+                {fileList.map((filePath) => {
+                  const isSelected = filePath === selectedRepoFile;
+                  return (
+                    <button
+                      key={filePath}
+                      type="button"
+                      onClick={() => setSelectedRepoFile(filePath)}
+                      className={`w-full text-left px-3 py-2 rounded-xl font-mono text-xs flex items-center justify-between gap-2 transition-colors cursor-pointer ${
+                        isSelected
+                          ? 'bg-red-600 text-white font-bold'
+                          : 'text-red-200/80 hover:bg-red-950/60 hover:text-white'
+                      }`}
+                    >
+                      <span className="truncate flex items-center gap-2">
+                        <FileCode className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate">{filePath}</span>
+                      </span>
+                      <span className="text-[10px] opacity-75 shrink-0">
+                        {((repoFiles[filePath]?.length || 0) / 1024).toFixed(1)} KB
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="lg:col-span-8 rounded-2xl border border-red-900/80 bg-[#0d0305] overflow-hidden flex flex-col max-h-[520px]">
+                <div className="px-4 py-2.5 bg-[#190509] border-b border-red-900/70 flex items-center justify-between">
+                  <span className="font-mono text-xs font-bold text-red-200">
+                    {selectedRepoFile}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleCopy(repoFiles[selectedRepoFile] || '', 'selected-repo-file')
+                    }
+                    className="px-3 py-1 rounded-full bg-red-900/60 hover:bg-red-700 text-white text-[11px] flex items-center gap-1.5 cursor-pointer"
+                  >
+                    {copiedId === 'selected-repo-file' ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Скопировано</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>Копировать код файла</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+                <pre className="p-4 font-mono text-[11.5px] text-red-100 overflow-auto leading-relaxed flex-1">
+                  {repoFiles[selectedRepoFile] || 'Выберите файл слева для просмотра...'}
+                </pre>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 3: README.md */}
+        {activeDocTab === 'readme' && (
+          <div className="p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="text-xs font-mono text-red-300">
+                Файл: <span className="text-white font-bold">README.md</span> (Red Crimson Edition)
+              </div>
+              <button
+                type="button"
+                onClick={() => handleCopy(repoFiles['README.md'] || '', 'readme-copy')}
+                className="px-3 py-1.5 rounded-full bg-red-900/60 hover:bg-red-700 text-white text-xs flex items-center gap-1.5 cursor-pointer"
+              >
+                {copiedId === 'readme-copy' ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Скопировано</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Скопировать README.md</span>
+                  </>
+                )}
               </button>
             </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Official README & Legal EULA Section */}
-      <div className="p-6 rounded-xl border border-slate-800 bg-slate-900/90 shadow-xl space-y-6">
-        <div className="flex items-center gap-2 text-sm font-bold text-white pb-3 border-b border-slate-800">
-          <FileText className="w-5 h-5 text-purple-400" />
-          <span>Официальное Лицензионное Соглашение EULA &amp; Правила Использования</span>
-        </div>
-
-        {/* 1. Strict Legal Prohibitions */}
-        <div className="p-4 rounded-xl border border-rose-500/30 bg-rose-500/10 space-y-3">
-          <div className="text-xs font-bold text-rose-300 flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4" />
-            <span>1. СТРОГИЙ ЗАПРЕТ НА КРАЖУ КОДА И СОЗДАНИЕ ИГРОВЫХ ЧИТОВ</span>
+            <pre className="p-5 rounded-2xl bg-[#0b0204] border border-red-900/80 font-mono text-xs text-red-100 overflow-x-auto leading-relaxed whitespace-pre-wrap">
+              {repoFiles['README.md'] || 'Загрузка README.md...'}
+            </pre>
           </div>
-          <p className="text-xs text-rose-200/90 leading-relaxed text-[11.5px]">
-            Использование декомпилятора и антивирусного движка <strong>SuperCodeX v9.847.149</strong> строго ограничено исследовательскими задачами информационной безопасности. Запрещаются следующие действия:
-          </p>
-          <ul className="text-xs text-rose-200/90 space-y-1.5 list-disc list-inside text-[11.5px] leading-relaxed">
-            <li>
-              <strong>Запрет разработки игровых читов</strong>: Категорически запрещено применять SuperCodeX для создания обходов античитов (EAC, BattlEye, Vanguard), модов, трейнеров и инжекторов.
-            </li>
-            <li>
-              <strong>Запрет кражи авторского кода</strong>: Запрещено декомпилировать и несанкционированно копировать чужую коммерческую интеллектуальную собственность и проприетарные алгоритмы.
-            </li>
-            <li>
-              <strong>Запрет создания вредоносных программ</strong>: Запрещено применять инструмент для модификации сэмплов с целью обхода антивирусной защиты.
-            </li>
-          </ul>
-        </div>
+        )}
 
-        {/* 2. Privacy & Confidentiality Guarantee */}
-        <div className="p-4 rounded-xl border border-cyan-500/30 bg-cyan-500/10 space-y-2">
-          <div className="text-xs font-bold text-cyan-300 flex items-center gap-2">
-            <Lock className="w-4 h-4" />
-            <span>2. 100% ГАРАНТИЯ КОНФИДЕНЦИАЛЬНОСТИ И ОТСУТСТВИЯ УТЕЧЕК КОДА</span>
-          </div>
-          <p className="text-xs text-cyan-200/90 leading-relaxed text-[11.5px]">
-            Все процессы сканирования, дисассемблирования и декомпиляции графа C++ AST выполняются <strong>строго локально</strong>. Ни бинарные файлы пользователей, ни декомпилированный исходный код <strong>никогда не передаются на удаленные сервера или третьим лицам</strong>.
-            <br />
-            <strong>Защита интеллектуальной собственности SuperCodeX</strong>: Исходные алгоритмы C++ AST лифтинга и криптографического разматывания ядра защищены и не публицируются в открытом виде, обеспечивая полную безопасность системы.
-          </p>
-        </div>
-
-        {/* 3. Purpose & Engineering Baseline */}
-        <div className="p-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 space-y-2">
-          <div className="text-xs font-bold text-emerald-300 flex items-center gap-2">
-            <ShieldCheck className="w-4 h-4" />
-            <span>3. НАЗНАЧЕНИЕ И ПРЕВОСХОДСТВО НАД GHIDRA И IDA PRO</span>
-          </div>
-          <p className="text-xs text-emerald-200/90 leading-relaxed text-[11.5px]">
-            SuperCodeX разработан для исследования реальных угроз, реверс-инжиниринга вредоносного ПО и аудита безопасности. Архитектура v9.847.149 превосходит Ghidra 11.2 и IDA Pro 8.4 Hex-Rays за счет скорости работы (~1.8 мс vs 5700 мс) и 100% сохранения функций и локальных переменных (0% удаленного кода).
-          </p>
-        </div>
-
-        {/* Direct Benchmarks Action */}
-        <div className="pt-2 flex items-center justify-between">
-          <span className="text-xs text-slate-500">
-            Лицензия: SuperCodeX Enterprise Public Release EULA v9.847.149
-          </span>
-          <button
-            type="button"
-            onClick={onNavigateToBenchmarks}
-            className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition-colors flex items-center gap-2 cursor-pointer shadow-md"
-          >
-            <BarChart3 className="w-4 h-4" />
-            <span>Открыть live-бенчмарки SuperCodeX</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Why We Speak Truth & Why SuperCodeX Is Extremely Powerful */}
-      <div className="p-6 rounded-xl border border-amber-500/40 bg-amber-950/20 shadow-xl space-y-4">
-        <div className="flex items-center gap-3 pb-3 border-b border-amber-900/40">
-          <Zap className="w-5 h-5 text-amber-400" />
-          <div>
-            <h3 className="text-base font-bold text-white">
-              Почему мы гарантируем 100% ПРАВДУ и почему SuperCodeX настолько мощный
-            </h3>
-            <p className="text-xs text-amber-200/80">
-              Честный технический ответ без выдумок, симуляций и сжатия
-            </p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs leading-relaxed">
-          <div className="p-4 rounded-lg bg-slate-950/80 border border-slate-800 space-y-2">
-            <h4 className="font-bold text-emerald-400 flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4" />
-              <span>1. Почему мы гарантируем 100% ПРАВДУ без обмана:</span>
-            </h4>
-            <ul className="space-y-1.5 text-slate-300 list-disc list-inside text-[11.5px]">
-              <li><strong>Открытый C++ исходный код</strong>: Весь движок `supercodex_cli.cpp` и CMakeLists открыты на GitHub в ветке `main`.</li>
-              <li><strong>Реальные автономные бинарники (~112-125 MB)</strong>: Релиз `v9.847.149` содержит полноценные откомпилированные файлы без имитаций.</li>
-              <li><strong>Отсутствие накрученных цифр</strong>: 20/20 тестов эмулируют реальные байтовые структуры x86/ARM64/DEX/WASM и замеряют математическую точность.</li>
-              <li><strong>100% Локальная приватность</strong>: Ваши файлы не отправляются на сторонние сервера — анализ полностью клиентский.</li>
-            </ul>
-          </div>
-
-          <div className="p-4 rounded-lg bg-slate-950/80 border border-slate-800 space-y-2">
-            <h4 className="font-bold text-purple-400 flex items-center gap-2">
-              <Cpu className="w-4 h-4" />
-              <span>2. Почему SuperCodeX настолько мощный (32 Модуля):</span>
-            </h4>
-            <ul className="space-y-1.5 text-slate-300 list-disc list-inside text-[11.5px]">
-              <li><strong>Lossless C++ AST Lifter (0% удалений)</strong>: Восстанавливает 100% типов, структур, циклов и вызовов функций (у Ghidra/IDA потери 6-10%).</li>
-              <li><strong>32 Глубинных модуля уклонений</strong>: Встроены детекторы Hell&apos;s Gate SSN, Heaven&apos;s Gate WOW64, Early Cascade, OLLVM De-obfuscator, io_uring rootkits.</li>
-              <li><strong>Сверхскорость (~1.8 мс)</strong>: Работает в 3000 раз быстрее тяжелых Java-ориентированных Ghidra (~5700 мс).</li>
-              <li><strong>Мульти-архитектурная декомпиляция</strong>: Поддерживает PE64, ELF, Mach-O, Android DEX, .NET CIL и WebAssembly.</li>
-            </ul>
-          </div>
-        </div>
-      </div>
-
-      {/* Full 32 Modules Architecture Audit Section (No Fake Features Guarantee) */}
-      <div className="p-6 rounded-xl border border-purple-900/60 bg-purple-950/20 shadow-xl space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-purple-900/50">
-          <div className="space-y-1">
-            <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <Cpu className="w-5 h-5 text-purple-400" />
-              <span>Честный аудит: Полная архитектура и устройства всех 32 модулей</span>
-            </h3>
-            <p className="text-xs text-slate-400">
-              Названия, исходные файлы и точный математико-технический механизм каждого модуля
-            </p>
-          </div>
-          <span className="px-3 py-1 rounded text-xs font-mono font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30 shrink-0">
-            32 / 32 МОДУЛЯ ВЖИВУЮ
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-          {[
-            { id: 1, name: 'Shannon Entropy Threshold Analyzer', file: 'src/engine/scanner.ts', tech: 'Глобальный расчёт энтропии Шеннона секций PE/ELF' },
-            { id: 2, name: 'Stack-String Decompiler & Unwinder', file: 'src/engine/scanner.ts', tech: 'Реконструкция скрытых строк mov byte ptr [rsp+disp], imm8' },
-            { id: 3, name: 'ROR13 Dynamic API Hash Resolver', file: 'src/engine/scanner.ts', tech: 'Раскрытие API хешей Cobalt Strike / Metasploit' },
-            { id: 4, name: 'Rolling-XOR CPU Loop Emulator', file: 'src/engine/scanner.ts', tech: 'Эмуляция x86 и взлом позиционных XOR-шифров' },
-            { id: 5, name: 'C++ Disassembler & RTTI Demangler', file: 'src/engine/scanner.ts', tech: 'Разбор MSVC/GCC vtable и декодирование символов' },
-            { id: 6, name: 'Android Dalvik DEX / Smali Lifter', file: 'src/engine/decompiler.ts', tech: 'Извлечение classes.dex, Smali и классов Java/Kotlin' },
-            { id: 7, name: 'CFG Control Flow Graph C++ Lifter', file: 'src/engine/decompiler.ts', tech: 'Реконструкция циклов while/for и веток if/else' },
-            { id: 8, name: '.NET / C# CIL Reflective Inspector', file: 'src/engine/decompiler.ts', tech: 'Анализ опкодов CIL и детекция Assembly.Load' },
-            { id: 9, name: 'SSA VTable & Switch Dispatcher Lifter', file: 'src/engine/decompiler.ts', tech: 'Восстановление таблиц switch/case и вызовов C++' },
-            { id: 10, name: 'ARM64 Syscall Rootkit Inspector', file: 'src/engine/decompiler.ts', tech: 'Детектирование прерываний svc #0 в нативном коде' },
-            { id: 11, name: 'WASM Stack Cryptominer Lifter', file: 'src/engine/decompiler.ts', tech: 'Перевод инструкций i32.xor WebAssembly в C++' },
-            { id: 12, name: 'RC4 Stream Cipher Unpacker', file: 'src/engine/scanner.ts', tech: 'Извлечение ключа и расшифровка C2 маяка' },
-            { id: 13, name: 'Multi-Function Lossless C++ Lifter', file: 'src/engine/decompiler.ts', tech: 'Восстановление 100% функций и переменных (0% удалений)' },
-            { id: 14, name: 'XTEA 32-Round Feistel Cipher Unpacker', file: 'src/engine/scanner.ts', tech: 'Расшифровка памяти 32-раундового блочного шифра XTEA' },
-            { id: 15, name: 'Heaven\'s Gate WOW64 & io_uring', file: 'src/engine/scanner.ts', tech: 'Детект селектора CS=0x33 и io_uring rootkit' },
-            { id: 16, name: 'PE Section Anomaly Inspector', file: 'src/engine/scanner.ts', tech: 'Анализ прав RWX секций и упакованных заголовков' },
-            { id: 17, name: 'Suspicious Import Table (IAT) Analyzer', file: 'src/engine/scanner.ts', tech: 'Детект подмены импортов VirtualAllocEx / WriteProcessMemory' },
-            { id: 18, name: 'PDB / COFF Symbol Restorer', file: 'src/engine/decompiler.ts', tech: 'Привязка имён подпрограмм из COFF/PDB символов' },
-            { id: 19, name: 'Win64 Fastcall ABI Validator', file: 'src/engine/decompiler.ts', tech: 'Валидация регистровых параметров RCX, RDX, R8, R9' },
-            { id: 20, name: 'Stack Frame Unwinder & Locals Allocator', file: 'src/engine/decompiler.ts', tech: 'Восстановление переменных по смещениям [rbp-disp]' },
-            { id: 21, name: 'Indirect Call Graph Verifier', file: 'src/engine/decompiler.ts', tech: 'Разбор вызовов call rax / call qword ptr [rcx+disp]' },
-            { id: 22, name: 'Cryptographic Key Search Engine', file: 'src/engine/scanner.ts', tech: 'Поиск высокоэнтропийных ключей в .rdata' },
-            { id: 23, name: 'Execution Graph Validator', file: 'src/engine/decompiler.ts', tech: 'Проверка связности блоков Control Flow' },
-            { id: 24, name: 'Lossless Variable Restorer', file: 'src/engine/decompiler.ts', tech: 'Гарантия сохранности типизированных указателей' },
-            { id: 25, name: 'Hell\'s Gate / Halo\'s Gate Syscall Resolver', file: 'src/engine/scanner.ts', tech: 'Детект прямого чтения номеров SSN из ntdll.dll' },
-            { id: 26, name: 'Windows SEH Frame Exception Inspector', file: 'src/engine/decompiler.ts', tech: 'Восстановление блоков __try / __except из fs:[0]' },
-            { id: 27, name: 'OLLVM CFF State Machine Unraveler', file: 'src/engine/decompiler.ts', tech: 'Разматывание автоматов switch(cff_state)' },
-            { id: 28, name: 'Early Cascade Injection Inspector', file: 'src/engine/scanner.ts', tech: 'Детект внедрения шим-библиотек ShimEngine' },
-            { id: 29, name: 'Polymorphic AES Key Unroller', file: 'src/engine/scanner.ts', tech: 'Разматывание полиморфных циклов и очистка мусорных NOP/LEA' },
-            { id: 30, name: 'Kernel SSDT & IRP Hook Detector', file: 'src/engine/scanner.ts', tech: 'Детектирование перехватов таблиц ядра SSDT и IRP' },
-            { id: 31, name: 'Control Flow Guard (CFG) Bypass', file: 'src/engine/scanner.ts', tech: 'Детект манипуляций битмапой аппаратной защиты CFG' },
-            { id: 32, name: 'VM / Hypervisor CPUID Evasion Inspector', file: 'src/engine/scanner.ts', tech: 'Детект проверок гипервизора CPUID / RDTSC / VMMCALL' },
-          ].map((m) => (
-            <div
-              key={m.id}
-              className="p-3 rounded-lg border border-slate-800 bg-slate-950/80 space-y-1 hover:border-purple-500/40 transition-colors"
-            >
-              <div className="flex items-center justify-between text-xs font-bold text-white">
-                <span className="truncate">Модуль #{m.id}: {m.name}</span>
-                <span className="text-[10px] font-mono text-purple-400 shrink-0 ml-2">{m.file.split('/').pop()}</span>
+        {/* TAB 4: GitHub Actions Workflow */}
+        {activeDocTab === 'workflow' && (
+          <div className="p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="text-xs font-mono text-red-300">
+                Файл: <span className="text-white font-bold">.github/workflows/deploy.yml</span>
               </div>
-              <div className="text-[11px] text-slate-300 leading-relaxed">{m.tech}</div>
+              <button
+                type="button"
+                onClick={() => handleCopy(githubWorkflowYaml, 'workflow-copy')}
+                className="px-3 py-1.5 rounded-full bg-red-900/60 hover:bg-red-700 text-white text-xs flex items-center gap-1.5 cursor-pointer"
+              >
+                {copiedId === 'workflow-copy' ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Скопировано</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Скопировать deploy.yml</span>
+                  </>
+                )}
+              </button>
             </div>
-          ))}
-        </div>
+            <pre className="p-5 rounded-2xl bg-[#0b0204] border border-red-900/80 font-mono text-xs text-red-200 overflow-x-auto leading-relaxed">
+              {githubWorkflowYaml}
+            </pre>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -25,8 +25,10 @@
  */
 
 import { DecompilationResult, runBinarySourceDecompiler } from './decompiler';
+import { buildReconstructedProject } from './projectLifter';
 
 export type { DecompilationResult } from './decompiler';
+export type { ReconstructedProject, ReconstructedProjectFile } from './projectLifter';
 
 export interface EngineConfig {
   sensitivity: 'standard' | 'aggressive' | 'paranoid';
@@ -781,15 +783,17 @@ export function reconstructStackStrings(bytes: Uint8Array): DeobfuscatedLayer[] 
         'winexec',
       ];
       const findings = targetKw.filter((kw) => lower.includes(kw));
-      layers.push({
-        method: 'Stack-String-Assembly-Reconstructor',
-        originalSnippet: `mov byte/dword ptr [rsp/rbp+disp], imm @ 0x${startOffset
-          .toString(16)
-          .padStart(4, '0')
-          .toUpperCase()} (${instructionCount} инстр.)`,
-        decodedSnippet: reconstructed,
-        suspiciousFindings: findings.length > 0 ? findings : ['stack_string_evasion'],
-      });
+      if (findings.length > 0 || instructionCount >= 8) {
+        layers.push({
+          method: 'Stack-String-Assembly-Reconstructor',
+          originalSnippet: `mov byte/dword ptr [rsp/rbp+disp], imm @ 0x${startOffset
+            .toString(16)
+            .padStart(4, '0')
+            .toUpperCase()} (${instructionCount} инстр.)`,
+          decodedSnippet: reconstructed,
+          suspiciousFindings: findings.length > 0 ? findings : ['stack_string_evasion'],
+        });
+      }
     }
     reconstructed = '';
     instructionCount = 0;
@@ -812,15 +816,17 @@ export function reconstructStackStrings(bytes: Uint8Array): DeobfuscatedLayer[] 
       'winexec',
     ];
     const findings = targetKw.filter((kw) => lower.includes(kw));
-    layers.push({
-      method: 'Stack-String-Assembly-Reconstructor',
-      originalSnippet: `mov byte/dword ptr [rsp/rbp+disp], imm @ 0x${startOffset
-        .toString(16)
-        .padStart(4, '0')
-        .toUpperCase()} (${instructionCount} инстр.)`,
-      decodedSnippet: reconstructed,
-      suspiciousFindings: findings.length > 0 ? findings : ['stack_string_evasion'],
-    });
+    if (findings.length > 0 || instructionCount >= 8) {
+      layers.push({
+        method: 'Stack-String-Assembly-Reconstructor',
+        originalSnippet: `mov byte/dword ptr [rsp/rbp+disp], imm @ 0x${startOffset
+          .toString(16)
+          .padStart(4, '0')
+          .toUpperCase()} (${instructionCount} инстр.)`,
+        decodedSnippet: reconstructed,
+        suspiciousFindings: findings.length > 0 ? findings : ['stack_string_evasion'],
+      });
+    }
   }
 
   return layers;
@@ -1914,29 +1920,36 @@ export function analyzeExecutableOpcodes(
 
     // 9. NEW v8 Module #28: Control Flow Flattening (CFF) Obfuscated State-Machine Loop
     if (enableControlFlowFlattening) {
-      // Pattern: mov eax, [rbp-disp]; cmp eax, imm32; je/jne rel; ... jmp back
+      // Pattern: mov eax, [rbp-disp]; cmp eax, imm1; je rel1; cmp eax, imm2; je rel2; jmp back (EB <rel8>=0x80)
       if (
-        i + 8 < limit &&
+        i + 14 < limit &&
         b === 0x8b &&
         bytes[i + 1] === 0x45 &&
-        (bytes[i + 3] === 0x3d || (bytes[i + 3] === 0x83 && bytes[i + 4] === 0xf8))
+        bytes[i + 3] === 0x83 &&
+        bytes[i + 4] === 0xf8 &&
+        (bytes[i + 6] === 0x74 || bytes[i + 6] === 0x75) &&
+        bytes[i + 8] === 0x83 &&
+        bytes[i + 9] === 0xf8 &&
+        (bytes[i + 11] === 0x74 || bytes[i + 11] === 0x75) &&
+        bytes[i + 13] === 0xeb &&
+        bytes[i + 14] >= 0x80
       ) {
         const disp = bytes[i + 2];
-        const sliceHex = Array.from(bytes.subarray(i, i + 9))
+        const sliceHex = Array.from(bytes.subarray(i, i + 15))
           .map((x) => x.toString(16).padStart(2, '0').toUpperCase())
           .join(' ');
         findings.push({
           patternName: 'ControlFlowFlattening_OLLVM_Dispatcher_StateMachine',
           offsetHex: `0x${i.toString(16).padStart(6, '0').toUpperCase()}`,
           opcodeHex: sliceHex,
-          mnemonic: `mov eax, [rbp-0x${disp.toString(16)}] ; cmp eax, state ; je dispatcher_branch`,
+          mnemonic: `mov eax, [rbp-0x${disp.toString(16)}] ; cmp eax, state ; je dispatcher_branch ; jmp loop`,
           description:
             'Обнаружена структура стейт-машины диспетчера Control Flow Flattening (CFF / OLLVM): управление логикой через переменную состояния внутри диспетчерского цикла switch-case для сокрытия графа потока управления.',
           severity: 'high',
           scoreWeight: 75,
           mitreTechnique: 'T1027 (Control Flow Flattening Obfuscation)',
         });
-        i += 7;
+        i += 14;
         continue;
       }
     }
@@ -1998,8 +2011,13 @@ export function analyzeExecutableOpcodes(
         i += 5;
         continue;
       }
-      // Pattern B: Intentional fault triggering (UD2 0F 0B or INT 3 CC) followed by SEH handler
-      if (i + 1 < limit && b === 0x0f && bytes[i + 1] === 0x0b) {
+      // Pattern B: Intentional fault triggering (UD2 0F 0B) following SEH frame registration
+      if (
+        i + 1 < limit &&
+        b === 0x0f &&
+        bytes[i + 1] === 0x0b &&
+        findings.some((f) => f.patternName === 'Windows_SEH_Frame_Exception_Registration')
+      ) {
         findings.push({
           patternName: 'Windows_SEH_Intentional_Trap_UD2_AntiDebug',
           offsetHex: `0x${i.toString(16).padStart(6, '0').toUpperCase()}`,
@@ -2560,6 +2578,18 @@ export async function analyzeFileBytes(
     config.enableArm64AndWasmDecompiler,
     config.enableMultiFunctionLosslessLifter,
     config.enablePdbAndSymbolRecovery
+  );
+
+  decompilation.reconstructedProject = buildReconstructedProject(
+    fileName,
+    headerAnalysis,
+    decompilation,
+    stringsResult.asciiStrings,
+    stringsResult.suspiciousApis,
+    deobfuscatedLayers,
+    opcodeFindings,
+    resolvedApiHashes,
+    bytes
   );
 
   for (const anom of decompilation.decompilerAnomalies) {

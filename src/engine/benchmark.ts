@@ -27,6 +27,7 @@ import {
   ScanReport,
   xteaTransformBytes,
 } from './scanner';
+import { zipSync, strToU8 } from 'fflate';
 
 export interface BenchmarkSample {
   id: string;
@@ -204,91 +205,305 @@ export function buildSyntheticPe32Buffer(options: {
 }
 
 /**
- * Builds a real Android APK (ZIP Local File Header container) embedding a Dalvik Executable (classes.dex)
+ * Builds a real Android APK (ZIP container with AndroidManifest.xml and classes.dex)
  */
 export function buildSyntheticApkWithDexBuffer(options: {
   dexClasses: string[];
   dexStrings: string[];
   includeDalvikOpcodes: boolean;
 }): Uint8Array {
-  const buf = new Uint8Array(1024);
-  const view = new DataView(buf.buffer);
+  const dex = new Uint8Array(4096);
+  const view = new DataView(dex.buffer);
   const encoder = new TextEncoder();
 
-  // 1. First ZIP Local File Header: 'AndroidManifest.xml'
-  const entry1Name = encoder.encode('AndroidManifest.xml');
-  const entry1Data = encoder.encode('<manifest package="com.finance.overlay.stealer" />');
-  let pos = 0;
-  view.setUint32(pos, 0x04034b50, true); // PK\x03\x04
-  view.setUint16(pos + 4, 20, true);
-  view.setUint32(pos + 18, entry1Data.length, true); // compressed size
-  view.setUint32(pos + 22, entry1Data.length, true); // uncompressed size
-  view.setUint16(pos + 26, entry1Name.length, true);
-  view.setUint16(pos + 28, 0, true);
-  buf.set(entry1Name, pos + 30);
-  pos += 30 + entry1Name.length;
-  buf.set(entry1Data, pos);
-  pos += entry1Data.length;
+  // DEX magic 'dex\n035\0'
+  dex.set([0x64, 0x65, 0x78, 0x0a, 0x30, 0x33, 0x35, 0x00], 0);
+  view.setUint32(36, 0x70, true); // header size = 112
 
-  // 2. Second ZIP Local File Header: 'classes.dex'
-  const entry2Name = encoder.encode('classes.dex');
-  const dexSize = 512;
-  view.setUint32(pos, 0x04034b50, true); // PK\x03\x04
-  view.setUint16(pos + 4, 20, true);
-  view.setUint32(pos + 18, dexSize, true);
-  view.setUint32(pos + 22, dexSize, true);
-  view.setUint16(pos + 26, entry2Name.length, true);
-  view.setUint16(pos + 28, 0, true);
-  buf.set(entry2Name, pos + 30);
-  pos += 30 + entry2Name.length;
+  const class0Name = options.dexClasses[0] || 'Lcom/finance/overlay/stealer/AccessibilityOverlayService;';
+  const class1Name = options.dexClasses[1] || 'Lcom/finance/overlay/stealer/SmsInterceptReceiver;';
 
-  // 3. Dalvik Executable Header ('dex\n035\0') at pos
-  const dexStart = pos;
-  buf.set([0x64, 0x65, 0x78, 0x0a, 0x30, 0x33, 0x35, 0x00], dexStart);
-  view.setUint32(dexStart + 32, dexSize, true); // file_size
-  view.setUint32(dexStart + 36, 0x70, true); // header_size = 112
-  view.setUint32(dexStart + 56, options.dexStrings.length, true); // string_ids_size
-  view.setUint32(dexStart + 64, options.dexClasses.length, true); // type_ids_size
-  view.setUint32(dexStart + 88, 6, true); // method_ids_size
-  view.setUint32(dexStart + 96, 2, true); // class_defs_size
+  const stringsPool = [
+    'Ljava/lang/Object;', // 0
+    'Landroid/accessibilityservice/AccessibilityService;', // 1
+    'Landroid/content/BroadcastReceiver;', // 2
+    'Landroid/content/Context;', // 3
+    'Landroid/content/Intent;', // 4
+    'Landroid/view/accessibility/AccessibilityEvent;', // 5
+    'Landroid/telephony/SmsManager;', // 6
+    'Ldalvik/system/DexClassLoader;', // 7
+    class0Name, // 8
+    class1Name, // 9
+    'V', // 10
+    'I', // 11
+    'Ljava/lang/String;', // 12
+    '<init>', // 13
+    'onAccessibilityEvent', // 14
+    'onInterrupt', // 15
+    'onReceive', // 16
+    'sendTextMessage', // 17
+    'loadClass', // 18
+    'getDefault', // 19
+    options.dexStrings[2] || 'http://198.51.100.222/api/gate.php', // 20
+    'payload.dex', // 21
+    '+15550199', // 22
+    'SMS_STEALER_READY', // 23
+  ];
 
-  // 4. Dalvik VM Bytecode instructions at dexStart + 112
-  let codeCur = dexStart + 112;
-  if (options.includeDalvikOpcodes) {
-    // 1A 00 00 00 -> const-string v0, string@0000
-    buf.set([0x1a, 0x00, 0x00, 0x00], codeCur);
-    codeCur += 4;
-    // 22 01 00 00 -> new-instance v1, type@0000
-    buf.set([0x22, 0x01, 0x00, 0x00], codeCur);
-    codeCur += 4;
-    // 6E 20 01 00 10 00 -> invoke-virtual {v0, v1}, method@0001
-    buf.set([0x6e, 0x20, 0x01, 0x00, 0x10, 0x00], codeCur);
-    codeCur += 6;
-    // 71 10 02 00 00 00 -> invoke-static {v0}, method@0002
-    buf.set([0x71, 0x10, 0x02, 0x00, 0x00, 0x00], codeCur);
-    codeCur += 6;
-    // 0E 00 -> return-void
-    buf.set([0x0e, 0x00], codeCur);
-    codeCur += 4;
+  const typeStringIndices = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+  let cur = 112;
+
+  // string_ids table
+  const stringIdsOff = cur;
+  const stringIdsSize = stringsPool.length;
+  view.setUint32(56, stringIdsSize, true);
+  view.setUint32(60, stringIdsOff, true);
+  cur += stringIdsSize * 4;
+
+  // type_ids table
+  const typeIdsOff = cur;
+  const typeIdsSize = typeStringIndices.length;
+  view.setUint32(64, typeIdsSize, true);
+  view.setUint32(68, typeIdsOff, true);
+  for (let t = 0; t < typeIdsSize; t++) {
+    view.setUint32(typeIdsOff + t * 4, typeStringIndices[t], true);
+  }
+  cur += typeIdsSize * 4;
+
+  // proto_ids table (5 prototypes)
+  const protoIdsOff = cur;
+  const protoIdsSize = 5;
+  view.setUint32(72, protoIdsSize, true);
+  view.setUint32(76, protoIdsOff, true);
+  cur += protoIdsSize * 12;
+
+  // field_ids table (empty)
+  view.setUint32(80, 0, true);
+  view.setUint32(84, 0, true);
+
+  // method_ids table (8 methods)
+  const methodIdsOff = cur;
+  const methodIdsSize = 8;
+  view.setUint32(88, methodIdsSize, true);
+  view.setUint32(92, methodIdsOff, true);
+  const methods = [
+    { c: 0, p: 0, n: 13 }, // 0: Object.<init>
+    { c: 8, p: 0, n: 13 }, // 1: Class0.<init>
+    { c: 8, p: 1, n: 14 }, // 2: Class0.onAccessibilityEvent
+    { c: 8, p: 0, n: 15 }, // 3: Class0.onInterrupt
+    { c: 9, p: 0, n: 13 }, // 4: Class1.<init>
+    { c: 9, p: 2, n: 16 }, // 5: Class1.onReceive
+    { c: 6, p: 3, n: 19 }, // 6: SmsManager.getDefault
+    { c: 6, p: 4, n: 17 }, // 7: SmsManager.sendTextMessage
+  ];
+  for (let m = 0; m < methodIdsSize; m++) {
+    const base = methodIdsOff + m * 8;
+    view.setUint16(base, methods[m].c, true);
+    view.setUint16(base + 2, methods[m].p, true);
+    view.setUint32(base + 4, methods[m].n, true);
+  }
+  cur += methodIdsSize * 8;
+
+  // class_defs table (2 classes)
+  const classDefsOff = cur;
+  const classDefsSize = 2;
+  view.setUint32(96, classDefsSize, true);
+  view.setUint32(100, classDefsOff, true);
+  cur += classDefsSize * 32;
+
+  view.setUint32(108, cur, true); // data_off
+
+  // 1. Write String Data Items
+  for (let s = 0; s < stringsPool.length; s++) {
+    view.setUint32(stringIdsOff + s * 4, cur, true);
+    const sb = encoder.encode(stringsPool[s]);
+    dex[cur++] = sb.length;
+    dex.set(sb, cur);
+    cur += sb.length;
+    dex[cur++] = 0;
   }
 
-  // 5. Write DEX class descriptors & strings pool
-  for (const cls of options.dexClasses) {
-    const cb = encoder.encode(cls + '\0');
-    if (codeCur + cb.length < buf.length) {
-      buf.set(cb, codeCur);
-      codeCur += cb.length;
-    }
-  }
-  for (const s of options.dexStrings) {
-    const sb = encoder.encode(s + '\0');
-    if (codeCur + sb.length < buf.length) {
-      buf.set(sb, codeCur);
-      codeCur += sb.length;
-    }
-  }
+  while (cur % 4 !== 0) cur++;
 
-  return buf;
+  // 2. Write Type Lists for parameters
+  const proto1TypeListOff = cur;
+  view.setUint32(cur, 1, true);
+  view.setUint16(cur + 4, 5, true); // AccessibilityEvent
+  cur += 8;
+
+  const proto2TypeListOff = cur;
+  view.setUint32(cur, 2, true);
+  view.setUint16(cur + 4, 3, true); // Context
+  view.setUint16(cur + 6, 4, true); // Intent
+  cur += 8;
+
+  const proto4TypeListOff = cur;
+  view.setUint32(cur, 2, true);
+  view.setUint16(cur + 4, 12, true); // String
+  view.setUint16(cur + 6, 12, true); // String
+  cur += 8;
+
+  // Fill proto_ids
+  view.setUint32(protoIdsOff + 0 * 12, 10, true);
+  view.setUint32(protoIdsOff + 0 * 12 + 4, 10, true);
+  view.setUint32(protoIdsOff + 0 * 12 + 8, 0, true);
+
+  view.setUint32(protoIdsOff + 1 * 12, 10, true);
+  view.setUint32(protoIdsOff + 1 * 12 + 4, 10, true);
+  view.setUint32(protoIdsOff + 1 * 12 + 8, proto1TypeListOff, true);
+
+  view.setUint32(protoIdsOff + 2 * 12, 10, true);
+  view.setUint32(protoIdsOff + 2 * 12 + 4, 10, true);
+  view.setUint32(protoIdsOff + 2 * 12 + 8, proto2TypeListOff, true);
+
+  view.setUint32(protoIdsOff + 3 * 12, 6, true);
+  view.setUint32(protoIdsOff + 3 * 12 + 4, 6, true);
+  view.setUint32(protoIdsOff + 3 * 12 + 8, 0, true);
+
+  view.setUint32(protoIdsOff + 4 * 12, 10, true);
+  view.setUint32(protoIdsOff + 4 * 12 + 4, 10, true);
+  view.setUint32(protoIdsOff + 4 * 12 + 8, proto4TypeListOff, true);
+
+  // 3. Write Code Items
+  // Code Item 1: <init>
+  const initCodeOff = cur;
+  view.setUint16(cur, 1, true);
+  view.setUint16(cur + 2, 1, true);
+  view.setUint16(cur + 4, 1, true);
+  view.setUint16(cur + 6, 0, true);
+  view.setUint32(cur + 8, 0, true);
+  view.setUint32(cur + 12, 4, true);
+  dex.set([0x6f, 0x10, 0x00, 0x00, 0x00, 0x00], cur + 16); // invoke-super {v0}, Method 0
+  dex.set([0x0e, 0x00], cur + 22); // return-void
+  cur += 24;
+
+  // Code Item 2: onAccessibilityEvent
+  const onAccessCodeOff = cur;
+  view.setUint16(cur, 3, true);
+  view.setUint16(cur + 2, 2, true);
+  view.setUint16(cur + 4, 0, true);
+  view.setUint16(cur + 6, 0, true);
+  view.setUint32(cur + 8, 0, true);
+  view.setUint32(cur + 12, 7, true);
+  dex.set([0x1a, 0x00, 0x14, 0x00], cur + 16); // const-string v0, "http://..."
+  dex.set([0x1a, 0x01, 0x15, 0x00], cur + 20); // const-string v1, "payload.dex"
+  dex.set([0x22, 0x02, 0x07, 0x00], cur + 24); // new-instance v2, DexClassLoader
+  dex.set([0x0e, 0x00], cur + 28); // return-void
+  cur += 32;
+
+  // Code Item 3: onInterrupt
+  const onInterruptCodeOff = cur;
+  view.setUint16(cur, 1, true);
+  view.setUint16(cur + 2, 1, true);
+  view.setUint16(cur + 4, 0, true);
+  view.setUint16(cur + 6, 0, true);
+  view.setUint32(cur + 8, 0, true);
+  view.setUint32(cur + 12, 1, true);
+  dex.set([0x0e, 0x00], cur + 16); // return-void
+  cur += 20;
+
+  // Code Item 4: onReceive
+  const onReceiveCodeOff = cur;
+  view.setUint16(cur, 4, true);
+  view.setUint16(cur + 2, 3, true);
+  view.setUint16(cur + 4, 3, true);
+  view.setUint16(cur + 6, 0, true);
+  view.setUint32(cur + 8, 0, true);
+  view.setUint32(cur + 12, 11, true);
+  dex.set([0x71, 0x00, 0x06, 0x00, 0x00, 0x00], cur + 16); // invoke-static SmsManager.getDefault
+  dex.set([0x0c, 0x00], cur + 22); // move-result-object v0
+  dex.set([0x1a, 0x01, 0x16, 0x00], cur + 24); // const-string v1, "+15550199"
+  dex.set([0x1a, 0x02, 0x17, 0x00], cur + 28); // const-string v2, "SMS_STEALER_READY"
+  dex.set([0x6e, 0x30, 0x07, 0x00, 0x10, 0x02], cur + 32); // invoke-virtual {v0, v1, v2}, sendTextMessage
+  dex.set([0x0e, 0x00], cur + 38); // return-void
+  cur += 40;
+
+  // 4. Write Class Data Items
+  // Class 0: direct 1 (<init>), virtual 2 (onAccessibilityEvent, onInterrupt)
+  const class0DataOff = cur;
+  dex[cur++] = 0; // static_fields_size
+  dex[cur++] = 0; // instance_fields_size
+  dex[cur++] = 1; // direct_methods_size
+  dex[cur++] = 2; // virtual_methods_size
+  dex[cur++] = 1; // diff = 1 (Method 1: <init>)
+  dex[cur++] = 1; // public
+  let co = initCodeOff;
+  while (co >= 0x80) { dex[cur++] = (co & 0x7f) | 0x80; co >>>= 7; }
+  dex[cur++] = co & 0x7f;
+
+  dex[cur++] = 2; // diff = 2 (0 + 2 = Method 2: onAccessibilityEvent)
+  dex[cur++] = 1; // public
+  co = onAccessCodeOff;
+  while (co >= 0x80) { dex[cur++] = (co & 0x7f) | 0x80; co >>>= 7; }
+  dex[cur++] = co & 0x7f;
+
+  dex[cur++] = 1; // diff = 1 (2 + 1 = Method 3: onInterrupt)
+  dex[cur++] = 1; // public
+  co = onInterruptCodeOff;
+  while (co >= 0x80) { dex[cur++] = (co & 0x7f) | 0x80; co >>>= 7; }
+  dex[cur++] = co & 0x7f;
+
+  while (cur % 4 !== 0) cur++;
+
+  // Class 1: direct 1 (<init>), virtual 1 (onReceive)
+  const class1DataOff = cur;
+  dex[cur++] = 0;
+  dex[cur++] = 0;
+  dex[cur++] = 1;
+  dex[cur++] = 1;
+  dex[cur++] = 4; // diff = 4 (Method 4: <init>)
+  dex[cur++] = 1; // public
+  co = initCodeOff;
+  while (co >= 0x80) { dex[cur++] = (co & 0x7f) | 0x80; co >>>= 7; }
+  dex[cur++] = co & 0x7f;
+
+  dex[cur++] = 5; // diff = 5 (0 + 5 = Method 5: onReceive)
+  dex[cur++] = 1; // public
+  co = onReceiveCodeOff;
+  while (co >= 0x80) { dex[cur++] = (co & 0x7f) | 0x80; co >>>= 7; }
+  dex[cur++] = co & 0x7f;
+
+  while (cur % 4 !== 0) cur++;
+
+  // 5. Fill class_defs table entries
+  view.setUint32(classDefsOff, 8, true);
+  view.setUint32(classDefsOff + 4, 1, true);
+  view.setUint32(classDefsOff + 8, 1, true); // superclass Type 1 (AccessibilityService)
+  view.setUint32(classDefsOff + 12, 0, true);
+  view.setUint32(classDefsOff + 16, 0, true);
+  view.setUint32(classDefsOff + 20, 0, true);
+  view.setUint32(classDefsOff + 24, class0DataOff, true);
+  view.setUint32(classDefsOff + 28, 0, true);
+
+  view.setUint32(classDefsOff + 32, 9, true);
+  view.setUint32(classDefsOff + 36, 1, true);
+  view.setUint32(classDefsOff + 40, 2, true); // superclass Type 2 (BroadcastReceiver)
+  view.setUint32(classDefsOff + 44, 0, true);
+  view.setUint32(classDefsOff + 48, 0, true);
+  view.setUint32(classDefsOff + 52, 0, true);
+  view.setUint32(classDefsOff + 56, class1DataOff, true);
+  view.setUint32(classDefsOff + 60, 0, true);
+
+  view.setUint32(32, cur, true);
+  view.setUint32(104, cur - view.getUint32(108, true), true);
+
+  const dexBytes = dex.subarray(0, cur);
+
+  // Package into standard APK ZIP container
+  return zipSync({
+    'AndroidManifest.xml': [
+      strToU8(
+        '<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.finance.overlay.stealer">' +
+          '<uses-permission android:name="android.permission.SEND_SMS"/>' +
+          '<application android:label="BankerUpdate">' +
+          '<service android:name=".AccessibilityOverlayService" android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"/>' +
+          '<receiver android:name=".SmsInterceptReceiver"/>' +
+          '</application></manifest>'
+      ),
+      { level: 0 },
+    ],
+    'classes.dex': [dexBytes, { level: 0 }],
+  });
 }
 
 export const BENCHMARK_SAMPLES: BenchmarkSample[] = [

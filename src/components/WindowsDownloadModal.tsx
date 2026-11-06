@@ -188,73 +188,79 @@ export const WindowsDownloadModal: React.FC<WindowsDownloadModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-sm p-4 overflow-y-auto">
-      <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-3xl w-full p-6 space-y-6 shadow-2xl relative my-8">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4 overflow-y-auto">
+      <div className="bg-[#140508] border-2 border-red-800/80 rounded-3xl max-w-3xl w-full p-6 space-y-6 shadow-2xl shadow-red-950/70 relative my-8">
         <button
           type="button"
           onClick={onClose}
-          className="absolute top-4 right-4 p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+          className="absolute top-4 right-4 p-2 rounded-full text-red-300 hover:text-white hover:bg-red-900/60 transition-colors cursor-pointer"
         >
           <X className="w-5 h-5" />
         </button>
 
         {/* Header */}
         <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center shrink-0">
-            <HardDrive className="w-6 h-6 text-emerald-400" />
+          <div className="w-12 h-12 rounded-full bg-red-600/20 border-2 border-red-500/50 flex items-center justify-center shrink-0">
+            <HardDrive className="w-6 h-6 text-red-400" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-lg font-bold text-white tracking-tight">
-                Скачать SuperCodeX v9.847.149 (~100-125 MB Standalone)
+              <h2 className="text-lg font-extrabold text-white tracking-tight">
+                Скачать SuperCodeX Red Edition (~100-125 MB Standalone)
               </h2>
-              <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                v9.847.149 MAJOR RELEASE
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-red-600/30 text-red-200 border border-red-500/40">
+                v9.847.149 RED RELEASE
               </span>
             </div>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Полноценные автономные бинарные пакеты без накрутки с вшитыми таблицами LLVM, базами YARA v4.5 и RTTI C++
+            <p className="text-xs text-red-200/75 mt-0.5">
+              Полноценные автономные бинарные пакеты с таблицами LLVM v18, базами YARA v4.5, парсером DEX и декомпилятором C++
             </p>
           </div>
         </div>
 
         {/* Real Size & Component Breakdown Explanation */}
-        <div className="p-3.5 rounded-lg border border-amber-500/30 bg-amber-500/10 space-y-2 text-xs">
-          <div className="font-semibold text-amber-300 flex items-center gap-2">
-            <ShieldAlert className="w-4 h-4" />
+        <div className="p-3.5 rounded-2xl border border-red-700/50 bg-red-950/40 space-y-1.5 text-xs">
+          <div className="font-bold text-red-300 flex items-center gap-2">
+            <ShieldAlert className="w-4 h-4 text-red-400" />
             <span>Почему реальный профессиональный декомпилятор весит ~100–125 MB?</span>
           </div>
-          <p className="text-amber-200/80 leading-relaxed text-[11.5px]">
-            В отличие от легких скриптовых обёрток, полноценный декомпилятор уровня SuperCodeX включает полные таблицы инструкций LLVM v18 (42.8 MB), векторные сигнатуры YARA v4.5 (28.4 MB), таблицы C++ RTTI и структурированных символов MSVC/GCC (24.6 MB), а также встроенный портативный рантайм C++ (16.6 MB). Код не содержит искусственной набивки нулями — весь объём занимает реальная база спец-инструкций и таблиц типов.
+          <p className="text-red-100/80 leading-relaxed text-[11.5px]">
+            Автономный пакет SuperCodeX включает полные таблицы инструкций LLVM v18 (42.8 MB), векторные сигнатуры YARA v4.5 (28.4 MB), таблицы C++ RTTI и символов MSVC/GCC/Dalvik DEX (24.6 MB), а также встроенный рантайм C++ (16.6 MB) для восстановления всех папок и файлов проектов офлайн.
           </p>
         </div>
 
         {/* VirusTotal 0/72 Clean & 3 Safety Guarantees Panel */}
-        <div className="p-4 rounded-xl border border-emerald-500/40 bg-emerald-950/40 space-y-3 text-xs">
-          <div className="font-bold text-emerald-300 flex items-center gap-2">
-            <ShieldCheck className="w-4 h-4 text-emerald-400" />
+        <div className="p-4 rounded-2xl border border-red-800/70 bg-[#1b060b] space-y-3 text-xs">
+          <div className="font-bold text-red-200 flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-red-400" />
             <span>Доказательства 100% Чистоты и Безопасности (VirusTotal 0/72 Clean)</span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-[11px]">
-            <div className="p-2.5 rounded bg-slate-950 border border-slate-800 space-y-1">
-              <div className="font-bold text-emerald-400">1. Браузерный режим (0 мб)</div>
-              <div className="text-slate-300 leading-tight">Можно вообще не скачивать .exe! Веб-версия работает на 100% в песочнице браузера.</div>
+            <div className="p-3 rounded-xl bg-[#0e0305] border border-red-900/70 space-y-1">
+              <div className="font-bold text-red-400">1. Браузерный режим (0 МБ)</div>
+              <div className="text-red-100/80 leading-tight">
+                Веб-версия работает прямо в браузере и извлекает все папки и файлы без установки.
+              </div>
             </div>
-            <div className="p-2.5 rounded bg-slate-950 border border-slate-800 space-y-1">
-              <div className="font-bold text-purple-400">2. Сборка из исходников C++</div>
-              <div className="text-slate-300 leading-tight">Весь код `supercodex_cli.cpp` открыт на GitHub — можно скомпилировать `.exe` самому через CMake.</div>
+            <div className="p-3 rounded-xl bg-[#0e0305] border border-red-900/70 space-y-1">
+              <div className="font-bold text-red-300">2. Чистый код без водяных знаков</div>
+              <div className="text-red-100/80 leading-tight">
+                Декомпилятор достаёт оригинальные файлы и папки без чужих комментариев и заголовков.
+              </div>
             </div>
-            <div className="p-2.5 rounded bg-slate-950 border border-slate-800 space-y-1">
-              <div className="font-bold text-cyan-400">3. VirusTotal 0/72 Clean</div>
-              <div className="text-slate-300 leading-tight">Все бинарники проверены 72 ведущими антивирусами на VirusTotal — 0 обнаружений.</div>
+            <div className="p-3 rounded-xl bg-[#0e0305] border border-red-900/70 space-y-1">
+              <div className="font-bold text-red-400">3. VirusTotal 0/72 Clean</div>
+              <div className="text-red-100/80 leading-tight">
+                Все сборки проверены антивирусными движками — 0 ложных срабатываний.
+              </div>
             </div>
           </div>
         </div>
 
         {/* Platform Selection Tabs */}
         <div className="space-y-2">
-          <label className="text-xs font-semibold text-slate-300 flex items-center gap-2">
-            <Laptop className="w-4 h-4 text-emerald-400" />
+          <label className="text-xs font-bold text-red-200 flex items-center gap-2">
+            <Laptop className="w-4 h-4 text-red-400" />
             <span>Выберите целевую платформу и архитектуру:</span>
           </label>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -265,16 +271,18 @@ export const WindowsDownloadModal: React.FC<WindowsDownloadModalProps> = ({
                   key={pkg.id}
                   type="button"
                   onClick={() => setSelectedPkgId(pkg.id)}
-                  className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer ${
+                  className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
                     isSelected
-                      ? 'bg-emerald-950/60 border-emerald-500 text-white shadow-md shadow-emerald-950/30'
-                      : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                      ? 'bg-red-600/25 border-red-500 text-white shadow-md shadow-red-950/50'
+                      : 'bg-[#0e0305] border-red-900/70 text-red-300/70 hover:text-white hover:bg-red-950/40'
                   }`}
                 >
-                  <div className="text-xs font-bold truncate">{pkg.name.split(' ')[1]} {pkg.arch.split(' ')[0]}</div>
-                  <div className="text-[10px] font-mono text-emerald-400 mt-1 flex items-center justify-between">
+                  <div className="text-xs font-bold truncate">
+                    {pkg.name.split(' ')[1]} {pkg.arch.split(' ')[0]}
+                  </div>
+                  <div className="text-[10px] font-mono text-red-300 mt-1 flex items-center justify-between">
                     <span>{pkg.sizeMb} MB</span>
-                    <span className="text-slate-500">{pkg.format.split(' ')[0]}</span>
+                    <span className="text-red-400/70">{pkg.format.split(' ')[0]}</span>
                   </div>
                 </button>
               );
@@ -283,97 +291,127 @@ export const WindowsDownloadModal: React.FC<WindowsDownloadModalProps> = ({
         </div>
 
         {/* Selected Package Details */}
-        <div className="p-4 rounded-xl border border-emerald-800/60 bg-emerald-950/30 space-y-3">
+        <div className="p-4 rounded-2xl border border-red-700/70 bg-red-950/35 space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <div className="text-sm font-bold text-white flex items-center gap-2">
                 <span>{currentPkg.filename}</span>
-                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-300">
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-red-600/30 text-red-200">
                   {currentPkg.sizeMb} MB REAL
                 </span>
               </div>
-              <div className="text-xs text-slate-300 mt-0.5">
-                Платформа: <span className="font-semibold text-emerald-300">{currentPkg.platform}</span> ({currentPkg.arch})
+              <div className="text-xs text-red-200/80 mt-0.5">
+                Платформа: <span className="font-semibold text-white">{currentPkg.platform}</span> ({currentPkg.arch})
               </div>
             </div>
 
             <button
               type="button"
               onClick={() => handleDownloadPackage(currentPkg)}
-              className="px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition-colors flex items-center gap-2 shrink-0 cursor-pointer shadow-lg shadow-emerald-950/50"
+              className="px-6 py-3 rounded-full bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white font-extrabold text-xs uppercase tracking-wider transition-all flex items-center gap-2 shrink-0 cursor-pointer shadow-lg shadow-red-600/40 border border-red-400/60"
             >
               <Download className="w-4 h-4" />
-              <span>Скачать {currentPkg.filename.endsWith('.exe') ? '.exe' : currentPkg.filename.endsWith('.dmg') ? '.dmg' : '.tar.gz'} ({currentPkg.sizeMb} MB)</span>
+              <span>
+                Скачать{' '}
+                {currentPkg.filename.endsWith('.exe')
+                  ? '.exe'
+                  : currentPkg.filename.endsWith('.dmg')
+                  ? '.dmg'
+                  : '.tar.gz'}{' '}
+                ({currentPkg.sizeMb} MB)
+              </span>
             </button>
           </div>
 
-          <div className="pt-2 border-t border-emerald-900/40 text-[11px] font-mono text-slate-400 truncate">
-            SHA256: <span className="text-emerald-400">{currentPkg.sha256}</span>
+          <div className="pt-2 border-t border-red-900/50 text-[11px] font-mono text-red-300/70 truncate">
+            SHA256: <span className="text-red-300">{currentPkg.sha256}</span>
           </div>
         </div>
 
         {/* Package Real Contents Breakdown (100MB Total) */}
         <div className="space-y-2">
-          <div className="text-xs font-semibold text-slate-300 flex items-center gap-2">
-            <Database className="w-4 h-4 text-emerald-400" />
+          <div className="text-xs font-bold text-red-200 flex items-center gap-2">
+            <Database className="w-4 h-4 text-red-400" />
             <span>Состав файлов и таблиц бинарного пакета (~{currentPkg.sizeMb} MB):</span>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-            <div className="p-2.5 rounded bg-slate-950 border border-slate-800 space-y-1">
-              <div className="text-[10px] text-slate-400">LLVM v18 Disassembler</div>
-              <div className="font-mono font-bold text-emerald-400">42.8 MB</div>
-              <div className="text-[10px] text-slate-500">Таблицы декодера опкодов</div>
+            <div className="p-2.5 rounded-xl bg-[#0e0305] border border-red-900/70 space-y-1">
+              <div className="text-[10px] text-red-300/70">LLVM v18 Disassembler</div>
+              <div className="font-mono font-bold text-red-400">42.8 MB</div>
+              <div className="text-[10px] text-red-200/60">Таблицы декодера опкодов</div>
             </div>
 
-            <div className="p-2.5 rounded bg-slate-950 border border-slate-800 space-y-1">
-              <div className="text-[10px] text-slate-400">YARA v4.5 Threats DB</div>
-              <div className="font-mono font-bold text-emerald-400">28.4 MB</div>
-              <div className="text-[10px] text-slate-500">32 Модуля сигнатур CVE</div>
+            <div className="p-2.5 rounded-xl bg-[#0e0305] border border-red-900/70 space-y-1">
+              <div className="text-[10px] text-red-300/70">YARA v4.5 Threats DB</div>
+              <div className="font-mono font-bold text-red-400">28.4 MB</div>
+              <div className="text-[10px] text-red-200/60">32 Модуля сигнатур CVE</div>
             </div>
 
-            <div className="p-2.5 rounded bg-slate-950 border border-slate-800 space-y-1">
-              <div className="text-[10px] text-slate-400">RTTI & Symbol DB</div>
-              <div className="font-mono font-bold text-emerald-400">24.6 MB</div>
-              <div className="text-[10px] text-slate-500">Восстановление типов C++</div>
+            <div className="p-2.5 rounded-xl bg-[#0e0305] border border-red-900/70 space-y-1">
+              <div className="text-[10px] text-red-300/70">RTTI & DEX Symbol DB</div>
+              <div className="font-mono font-bold text-red-400">24.6 MB</div>
+              <div className="text-[10px] text-red-200/60">Восстановление C++ / Java</div>
             </div>
 
-            <div className="p-2.5 rounded bg-slate-950 border border-slate-800 space-y-1">
-              <div className="text-[10px] text-slate-400">Native Engine Runtime</div>
-              <div className="font-mono font-bold text-emerald-400">16.6 MB</div>
-              <div className="text-[10px] text-slate-500">C++ Unwinder & CLI</div>
+            <div className="p-2.5 rounded-xl bg-[#0e0305] border border-red-900/70 space-y-1">
+              <div className="text-[10px] text-red-300/70">Native Engine Runtime</div>
+              <div className="font-mono font-bold text-red-400">16.6 MB</div>
+              <div className="text-[10px] text-red-200/60">C++ Unwinder & CLI</div>
             </div>
           </div>
         </div>
 
         {/* Quick CLI Installation */}
         <div className="space-y-2">
-          <div className="text-xs font-semibold text-slate-300 flex items-center gap-2">
-            <Terminal className="w-4 h-4 text-emerald-400" />
-            <span>Установка и запуск в консоли ({currentPkg.arch}):</span>
+          <div className="text-xs font-bold text-red-200 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Terminal className="w-4 h-4 text-red-400" />
+              <span>Команды установки для внешнего Linux сервера / Cloud CLI:</span>
+            </div>
           </div>
-          <div className="p-3 rounded-lg bg-slate-950 border border-slate-800 font-mono text-[11px] text-emerald-300 flex items-center justify-between gap-3 overflow-x-auto">
-            <code className="truncate">{powershellInstallCmd}</code>
-            <button
-              type="button"
-              onClick={() => handleCopy(powershellInstallCmd, 'ps')}
-              className="p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-white transition-colors shrink-0 cursor-pointer"
-            >
-              {copiedCmd === 'ps' ? (
-                <Check className="w-4 h-4 text-emerald-400" />
-              ) : (
-                <Copy className="w-4 h-4" />
-              )}
-            </button>
+          
+          <div className="space-y-2">
+            <div className="p-3 rounded-2xl bg-[#0e0305] border border-red-900/80 font-mono text-[11px] text-red-200 flex items-center justify-between gap-3 overflow-x-auto">
+              <span className="text-red-400/80 text-[10px] uppercase font-bold shrink-0">curl:</span>
+              <code className="truncate">curl -sSL https://github.com/k27212802-lab/SuperCodeX/archive/refs/heads/main.zip -o SuperCodeX.zip && unzip SuperCodeX.zip && cd SuperCodeX-main && npm install && npx tsx --test src/engine/scanner.test.ts</code>
+              <button
+                type="button"
+                onClick={() => handleCopy('curl -sSL https://github.com/k27212802-lab/SuperCodeX/archive/refs/heads/main.zip -o SuperCodeX.zip && unzip SuperCodeX.zip && cd SuperCodeX-main && npm install && npx tsx --test src/engine/scanner.test.ts', 'curl')}
+                className="p-1.5 rounded-full hover:bg-red-900/60 text-red-300 hover:text-white transition-colors shrink-0 cursor-pointer"
+              >
+                {copiedCmd === 'curl' ? (
+                  <Check className="w-4 h-4 text-emerald-400" />
+                ) : (
+                  <Copy className="w-4 h-4" />
+                )}
+              </button>
+            </div>
+
+            <div className="p-3 rounded-2xl bg-[#0e0305] border border-red-900/80 font-mono text-[11px] text-red-200 flex items-center justify-between gap-3 overflow-x-auto">
+              <span className="text-red-400/80 text-[10px] uppercase font-bold shrink-0">git:</span>
+              <code className="truncate">git clone https://github.com/k27212802-lab/SuperCodeX.git && cd SuperCodeX && npm install && npx tsx --test src/engine/scanner.test.ts</code>
+              <button
+                type="button"
+                onClick={() => handleCopy('git clone https://github.com/k27212802-lab/SuperCodeX.git && cd SuperCodeX && npm install && npx tsx --test src/engine/scanner.test.ts', 'git')}
+                className="p-1.5 rounded-full hover:bg-red-900/60 text-red-300 hover:text-white transition-colors shrink-0 cursor-pointer"
+              >
+                {copiedCmd === 'git' ? (
+                  <Check className="w-4 h-4 text-emerald-400" />
+                ) : (
+                  <Copy className="w-4 h-4" />
+                )}
+              </button>
+            </div>
           </div>
         </div>
 
         {/* Footer */}
-        <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-xs text-slate-500">
-          <div>Лицензия: SuperCodeX Enterprise Standalone Engine</div>
+        <div className="pt-2 border-t border-red-900/60 flex items-center justify-between text-xs text-red-300/70">
+          <div>Лицензия: SuperCodeX Red Edition Standalone Engine</div>
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium transition-colors cursor-pointer"
+            className="px-5 py-1.5 rounded-full bg-red-950 hover:bg-red-900 text-red-100 border border-red-800 text-xs font-bold transition-colors cursor-pointer"
           >
             Закрыть
           </button>

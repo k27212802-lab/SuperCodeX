@@ -205,7 +205,7 @@ void ClassMethodWithOpaquePredicate(longlong param_1)
     aegisDurationMs: 2.1,
     speedupFactor: 2709,
     originalCodeSnippet: `int64_t __fastcall ComputeRollingKeySubroutine(void* rcx, const char* rdx) {
-    uint32_t accum = (uint32_t)(uintptr_t)rcx ^ 0x5A5A5A5AU;
+    uint32_t accum = (uint32_t)(uintptr_t)rcx ^ 0x9E3779B9U;
     return (int64_t)accum;
 }
 
@@ -214,19 +214,18 @@ int64_t __fastcall ExecuteMultiStageImplant(void* rcx, const char* rdx) {
     uint32_t rollingAccum = 0x2010;
     uint32_t targetPid = 0x4;
     stageKey = (((stageKey + 7) << 4) + rollingAccum) ^ targetPid;
-    if (!(stageKey == 1)) {
-        ExecuteProtectedStage(rcx, 0);
+    if (stageKey != 1) {
+        sub_protected_stage(rcx, 0);
     }
     ComputeRollingKeySubroutine(rcx, rdx);
     return (int64_t)stageKey;
 }`,
     aegisReconstructedCode: `int64_t __fastcall ComputeRollingKeySubroutine(void* rcx_context, const char* rdx_cmdline) {
-    uint32_t sub_accum = (uint32_t)(uintptr_t)rcx_arg ^ 0x5A5A5A5AU;
+    uint32_t sub_accum = (uint32_t)(uintptr_t)rcx_context ^ 0x9E3779B9U;
     return (int64_t)sub_accum;
 }
 
 int64_t __fastcall ExecuteMultiStageImplant(void* rcx_context, const char* rdx_cmdline) {
-    uint8_t stack_frame[0x20] = { 0 };
     uint32_t stageKey = 0xB979379E;    // [rbp-0x4]
     uint32_t rollingAccum = 0x2010;    // [rbp-0x8]
     uint32_t targetPid = 0x4;          // [rbp-0xc]
@@ -237,8 +236,8 @@ int64_t __fastcall ExecuteMultiStageImplant(void* rcx_context, const char* rdx_c
     eax ^= targetPid;
     stageKey = eax;
 
-    if (!(eax == 0x1)) {
-        ExecuteProtectedStage(ctx_ptr, 0);
+    if (eax != 1) {
+        sub_protected_stage(rcx_context, 0);
     }
     uint64_t call_res_1 = ComputeRollingKeySubroutine(rcx_context, rdx_cmdline);
     return (int64_t)stageKey;

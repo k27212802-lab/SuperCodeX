@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import {
   calculateShannonEntropy,
   reconstructStackStrings,
@@ -18,6 +20,12 @@ import {
   runOriginalCppFidelityBenchmarkSuite,
 } from './decompiler';
 import { REAL_GHIDRA_TEST_CASES } from './ghidraIntegration';
+import {
+  parsePeBinaryStructure,
+  decodeNativeFunctionBytes,
+  isDataOrResourceFile,
+} from './peExportAndDecoder';
+import { verifyProjectCppSyntaxWithGpp } from './cppSyntaxValidator';
 
 test('Shannon entropy returns 0 for uniform bytes and ~8.0 for uniform 0..255 distribution', () => {
   const zeros = new Uint8Array(512);
@@ -311,5 +319,659 @@ test('Real NSA Ghidra 11.2.1 empirical headless test verification: verifies dead
   assert.ok(bm26);
   assert.ok(bm26.ghidraWarnings.some((w) => w.includes('File alignment == 0')));
 });
+
+test('v10 Project Lifter Engine reconstructs multi-folder project directory tree (CMake, src/, include/, res/) for PE and Android APK', async () => {
+  // Test 1: PE64 C++ Executable
+  const cppSample = BENCHMARK_SAMPLES.find((s) => s.id === 'BM-26')!;
+  const cppReport = await analyzeFileBytes(cppSample.fileName, cppSample.buildBytes(), DEFAULT_ENGINE_CONFIG);
+  assert.ok(cppReport.decompilation.reconstructedProject);
+  const cppProj = cppReport.decompilation.reconstructedProject;
+  assert.ok(cppProj.totalFiles >= 5);
+  assert.ok(cppProj.files.some((f) => f.path === 'CMakeLists.txt'));
+  assert.ok(cppProj.files.some((f) => f.path === 'Makefile'));
+  assert.ok(cppProj.files.some((f) => f.path === 'include/types.h'));
+  assert.ok(cppProj.files.some((f) => f.path === 'src/main.cpp'));
+  assert.ok(cppProj.files.some((f) => f.path === 'src/core/subroutines.cpp'));
+
+  // Verify zero branding/watermark comments in extracted project files
+  for (const f of cppProj.files) {
+    assert.ok(!f.content.includes('SuperCodeX'), `File ${f.path} should not contain watermark`);
+    assert.ok(!f.content.includes('Aegis_Decompiled_EntryPoint'), `File ${f.path} should use clean function names`);
+  }
+
+  // Test 2: Android APK
+  const apkSample = BENCHMARK_SAMPLES.find((s) => s.id === 'BM-19')!;
+  const apkReport = await analyzeFileBytes(apkSample.fileName, apkSample.buildBytes(), DEFAULT_ENGINE_CONFIG);
+  assert.ok(apkReport.decompilation.reconstructedProject);
+  const apkProj = apkReport.decompilation.reconstructedProject;
+  assert.ok(apkProj.totalFiles >= 5);
+  assert.ok(apkProj.files.some((f) => f.path === 'AndroidManifest.xml'));
+  assert.ok(apkProj.files.some((f) => f.path === 'build.gradle'));
+  assert.ok(apkProj.files.some((f) => f.path === 'src/main/java/com/app/MainActivity.java'));
+  for (const f of apkProj.files) {
+    assert.ok(!f.content.includes('SuperCodeX'), `APK File ${f.path} should not contain watermark`);
+  }
+});
+
+test('v11 Real Per-Function C++ Body Lifter: zero empty function stubs and distinct C++ code across different binaries', async () => {
+  const sampleA = BENCHMARK_SAMPLES.find((s) => s.id === 'BM-18')!; // RTTI + RDTSC + indirect call
+  const sampleB = BENCHMARK_SAMPLES.find((s) => s.id === 'BM-20')!; // CFG branch + loop + Win64 Fastcall
+  const sampleC = BENCHMARK_SAMPLES.find((s) => s.id === 'BM-22')!; // Struct + VTable + Switch + Opaque
+  const sampleD = BENCHMARK_SAMPLES.find((s) => s.id === 'BM-26')!; // Multi-function + ALU
+
+  const [repA, repB, repC, repD] = await Promise.all([
+    analyzeFileBytes(sampleA.fileName, sampleA.buildBytes(), DEFAULT_ENGINE_CONFIG),
+    analyzeFileBytes(sampleB.fileName, sampleB.buildBytes(), DEFAULT_ENGINE_CONFIG),
+    analyzeFileBytes(sampleC.fileName, sampleC.buildBytes(), DEFAULT_ENGINE_CONFIG),
+    analyzeFileBytes(sampleD.fileName, sampleD.buildBytes(), DEFAULT_ENGINE_CONFIG),
+  ]);
+
+  const projA = repA.decompilation.reconstructedProject!;
+  const projB = repB.decompilation.reconstructedProject!;
+  const projC = repC.decompilation.reconstructedProject!;
+  const projD = repD.decompilation.reconstructedProject!;
+
+  const mainA = projA.files.find((f) => f.path === 'src/main.cpp')!.content;
+  const mainB = projB.files.find((f) => f.path === 'src/main.cpp')!.content;
+  const mainC = projC.files.find((f) => f.path === 'src/main.cpp')!.content;
+  const mainD = projD.files.find((f) => f.path === 'src/main.cpp')!.content;
+
+  // 1. Verify that src/main.cpp is NOT an identical static template across different binaries!
+  assert.notEqual(mainA, mainB, 'src/main.cpp for BM-18 and BM-20 must not be identical templates');
+  assert.notEqual(mainB, mainC, 'src/main.cpp for BM-20 and BM-22 must not be identical templates');
+  assert.notEqual(mainC, mainD, 'src/main.cpp for BM-22 and BM-26 must not be identical templates');
+
+  // 2. Verify specific machine instructions from each binary are lifted into its src/main.cpp:
+  assert.ok(mainA.includes('__rdtsc()'), 'BM-18 src/main.cpp must contain lifted __rdtsc() check');
+  assert.ok(mainB.includes('0x1337') && mainB.includes('for ('), 'BM-20 src/main.cpp must contain lifted 0x1337 local var and loop');
+  assert.ok(mainC.includes('switch (') || mainC.includes('vfunc_0x18'), 'BM-22 src/main.cpp must contain lifted switch or vtable call');
+  assert.ok(mainD.includes('0xB979379E') && mainD.includes('0x2010'), 'BM-26 src/main.cpp must contain lifted ALU constants');
+
+  // 3. Verify ZERO empty `{ return; }` method stubs in any generated .cpp file across all 4 projects
+  for (const proj of [projA, projB, projC, projD]) {
+    for (const file of proj.files.filter((f) => f.language === 'cpp')) {
+      assert.ok(
+        !file.content.includes('{\n    return;\n}'),
+        `File ${file.path} in ${proj.projectName} must not contain empty { return; } stub`
+      );
+      assert.ok(
+        !file.content.includes('http://apt-c2-node.local/stage2.bin'),
+        `File ${file.path} in ${proj.projectName} must not contain hardcoded fake URL template`
+      );
+    }
+  }
+});
+
+test('v11 Demangled C++ Class Builder reconstructs both .h header and .cpp implementation with real method bodies', async () => {
+  const rttiSample = BENCHMARK_SAMPLES.find((s) => s.id === 'BM-18')!;
+  const report = await analyzeFileBytes(rttiSample.fileName, rttiSample.buildBytes(), DEFAULT_ENGINE_CONFIG);
+  const proj = report.decompilation.reconstructedProject!;
+
+  const classCpp = proj.files.find((f) => f.path.startsWith('src/core/') && f.path !== 'src/core/subroutines.cpp');
+  const classHeader = proj.files.find((f) => f.path.startsWith('include/') && f.path !== 'include/types.h' && f.path !== 'include/imports.h');
+
+  assert.ok(classCpp, 'Should reconstruct a dedicated C++ class implementation file in src/core/');
+  assert.ok(classHeader, 'Should reconstruct a dedicated C++ class header file in include/');
+  assert.ok(classHeader.content.includes('class '), 'Class header must contain class declaration');
+  assert.ok(classCpp.content.includes('::'), 'Class .cpp must contain scoped method definitions');
+  assert.ok(classCpp.content.includes('return '), 'Class .cpp methods must contain real decoded return statement');
+});
+
+test('v11 Multi-Subroutine Byte-Level Decoder lifts real local variables and ALU arithmetic inside called subroutines', async () => {
+  // Build a PE64 binary with 2 distinct functions:
+  // Function 1 at 0x200 (512): initializes local_var_8 = 0x200, calls Function 2 at 0x220 (544), returns eax
+  // Function 2 at 0x220 (544): initializes sub_var_8 = 0x777, adds 0x33, shifts left by 3, returns eax
+  const bin = new Uint8Array(768);
+  bin[0] = 0x4d;
+  bin[1] = 0x5a;
+  // Function 1 @ 512 (0x200):
+  // 55 48 89 E5 48 83 EC 20
+  // C7 45 F8 00 02 00 00 (mov [rbp-8], 0x200)
+  // E8 0B 00 00 00 (call +11 -> offset 512 + 20 + 11 = 543? Let's place E8 at 527 -> 527+5+12 = 544)
+  bin.set(
+    [
+      0x55, 0x48, 0x89, 0xe5, 0x48, 0x83, 0xec, 0x20, // 8 bytes (512..519)
+      0xc7, 0x45, 0xf8, 0x00, 0x02, 0x00, 0x00,       // 7 bytes (520..526)
+      0xe8, 0x0c, 0x00, 0x00, 0x00,                   // 5 bytes (527..531), target = 532 + 12 = 544 (0x220)
+      0x5d, 0xc3,                                     // 2 bytes (532..533)
+    ],
+    512
+  );
+  // Function 2 @ 544 (0x220):
+  // 55 48 89 E5 48 83 EC 20
+  // C7 45 F8 77 07 00 00 (mov [rbp-8], 0x777)
+  // 8B 45 F8 (mov eax, [rbp-8])
+  // 83 C0 33 (add eax, 0x33)
+  // C1 E0 03 (shl eax, 3)
+  // 5D C3
+  bin.set(
+    [
+      0x55, 0x48, 0x89, 0xe5, 0x48, 0x83, 0xec, 0x20,
+      0xc7, 0x45, 0xf8, 0x77, 0x07, 0x00, 0x00,
+      0x8b, 0x45, 0xf8,
+      0x83, 0xc0, 0x33,
+      0xc1, 0xe0, 0x03,
+      0x5d, 0xc3,
+    ],
+    544
+  );
+
+  const report = await analyzeFileBytes('two_real_funcs.exe', bin, DEFAULT_ENGINE_CONFIG);
+  const decompCode = report.decompilation.reconstructedCode;
+  const proj = report.decompilation.reconstructedProject!;
+  const subCpp = proj.files.find((f) => f.path === 'src/core/subroutines.cpp')!.content;
+
+  // Verify Function 2's actual body (0x777, += 0x33, <<= 3) was decoded both in master decompilation and in src/core/subroutines.cpp!
+  assert.ok(decompCode.includes('0x777'), 'Master decompiled code must decode subroutine constant 0x777');
+  assert.ok(decompCode.includes('eax += 0x33;'), 'Master decompiled code must decode subroutine ALU += 0x33');
+  assert.ok(decompCode.includes('eax <<= 3;'), 'Master decompiled code must decode subroutine shift <<= 3');
+
+  assert.ok(subCpp.includes('0x777'), 'subroutines.cpp must contain decoded subroutine local variable 0x777');
+  assert.ok(subCpp.includes('eax += 0x33;'), 'subroutines.cpp must contain decoded subroutine ALU += 0x33');
+  assert.ok(subCpp.includes('eax <<= 3;'), 'subroutines.cpp must contain decoded subroutine shift <<= 3');
+});
+
+test('v11 Struct & VTable Type Reconstruction in include/types.h and conditional payload_unpack.cpp', async () => {
+  const sample22 = BENCHMARK_SAMPLES.find((s) => s.id === 'BM-22')!;
+  const report = await analyzeFileBytes(sample22.fileName, sample22.buildBytes(), DEFAULT_ENGINE_CONFIG);
+  const proj = report.decompilation.reconstructedProject!;
+
+  const typesH = proj.files.find((f) => f.path === 'include/types.h')!.content;
+
+  // Verify struct fields and VTable pointers discovered in BM-22 are present in include/types.h
+  assert.ok(typesH.includes('field_0x10') && typesH.includes('field_0x18'), 'types.h must declare recovered struct fields field_0x10 and field_0x18');
+  assert.ok(typesH.includes('vfunc_0x18'), 'types.h must declare recovered VTable slot vfunc_0x18');
+
+  // Verify payload_unpack.cpp is NOT created when no obfuscation layers exist (BM-22), and IS created when RC4/XTEA layers exist (BM-25)
+  assert.ok(!proj.files.some((f) => f.path === 'src/security/payload_unpack.cpp'));
+  const sample25 = BENCHMARK_SAMPLES.find((s) => s.id === 'BM-25')!;
+  const report25 = await analyzeFileBytes(sample25.fileName, sample25.buildBytes(), DEFAULT_ENGINE_CONFIG);
+  const unpackCpp = report25.decompilation.reconstructedProject!.files.find((f) => f.path === 'src/security/payload_unpack.cpp')!.content;
+  assert.ok(unpackCpp.includes('UnpackDataSections'), 'payload_unpack.cpp must include real unpack routine when obfuscation exists');
+});
+
+test('v11 PDB Symbol Recovery and Subroutines in C++ Project Files', async () => {
+  const pdbSample = BENCHMARK_SAMPLES.find((s) => s.id === 'BM-26')!;
+  const xteaSample = BENCHMARK_SAMPLES.find((s) => s.id === 'BM-27')!;
+
+  const [pdbReport, xteaReport] = await Promise.all([
+    analyzeFileBytes(pdbSample.fileName, pdbSample.buildBytes(), DEFAULT_ENGINE_CONFIG),
+    analyzeFileBytes(xteaSample.fileName, xteaSample.buildBytes(), DEFAULT_ENGINE_CONFIG),
+  ]);
+
+  const pdbMain = pdbReport.decompilation.reconstructedProject!.files.find((f) => f.path === 'src/main.cpp')!.content;
+  const pdbSubs = pdbReport.decompilation.reconstructedProject!.files.find((f) => f.path === 'src/core/subroutines.cpp')!.content;
+  const xteaUnpack = xteaReport.decompilation.reconstructedProject!.files.find((f) => f.path === 'src/security/payload_unpack.cpp')!.content;
+
+  // PDB binary uses recovered symbol names (ExecuteMultiStageImplant & ComputeRollingKeySubroutine)
+  assert.ok(pdbMain.includes('ExecuteMultiStageImplant'), 'PDB binary src/main.cpp must use PDB symbol ExecuteMultiStageImplant');
+  assert.ok(pdbSubs.includes('ComputeRollingKeySubroutine') && pdbSubs.includes('0xAA55'), 'PDB binary subroutines.cpp must decode ComputeRollingKeySubroutine with 0xAA55');
+  assert.ok(xteaUnpack.includes('XteaDecryptBlock') && xteaUnpack.includes('0x9E3779B9U'), 'XTEA binary payload_unpack.cpp must reconstruct XteaDecryptBlock');
+});
+
+test('Qt5Xml.dll (PE32 x86, ImageBase 0x61000000 from APK Editor Studio 1.7.2) passes all 8 requirements and g++ -fsyntax-only', async () => {
+  const dllPath = path.resolve(process.cwd(), 'tmp/Qt5Xml.dll');
+  const rawBuffer = fs.readFileSync(dllPath);
+  const bytes = new Uint8Array(rawBuffer);
+
+  // Requirement 1: Bitness from PE header (Machine 0x014c / Magic 0x010b -> PE32 x86, ImageBase 0x61000000)
+  const peInfo = parsePeBinaryStructure(bytes);
+  assert.equal(peInfo.isValidPe, true);
+  assert.equal(peInfo.is32Bit, true, 'Qt5Xml.dll must be detected as 32-bit PE32 x86');
+  assert.equal(peInfo.machine, 0x014c, 'Machine must be IMAGE_FILE_MACHINE_I386 (0x014c)');
+  assert.equal(peInfo.optionalMagic, 0x010b, 'OptionalHeader Magic must be PE32 (0x010b)');
+  assert.equal(peInfo.imageBase, 0x61000000, 'ImageBase must be 0x61000000');
+
+  // Requirement 5: Exports with identical address decoded once, others marked as aliases
+  assert.equal(peInfo.exports.length, 446);
+  const aliasedExports = peInfo.exports.filter((e) => Boolean(e.isAliasOf));
+  assert.equal(aliasedExports.length, 124, 'Shared RVA exports in Qt5Xml.dll must be marked as aliases (124 aliases)');
+
+  // Mandatory 6 tests from real Qt5Xml.dll bytes -> expected body:
+  const mandatoryTests: Array<{ va: number; className: string; expectedBytes: string; expectedBody: string }> = [
+    { va: 0x61007b00, className: 'QDomAttr', expectedBytes: 'b8 02 00 00 00 c3', expectedBody: 'return 2;' },
+    { va: 0x61007b10, className: 'QDomCDATASection', expectedBytes: 'b8 04 00 00 00 c3', expectedBody: 'return 4;' },
+    { va: 0x61007b40, className: 'QDomComment', expectedBytes: 'b8 08 00 00 00 c3', expectedBody: 'return 8;' },
+    { va: 0x61007b50, className: 'QDomDocument', expectedBytes: 'b8 09 00 00 00 c3', expectedBody: 'return 9;' },
+    { va: 0x61007b80, className: 'QDomElement', expectedBytes: 'b8 01 00 00 00 c3', expectedBody: 'return 1;' },
+    { va: 0x61007bd0, className: 'QDomNotation', expectedBytes: 'b8 0c 00 00 00 c3', expectedBody: 'return 12;' },
+  ];
+
+  for (const tc of mandatoryTests) {
+    const exp = peInfo.exports.find((e) => e.va === tc.va);
+    assert.ok(exp, `Export at VA 0x${tc.va.toString(16)} (${tc.className}::nodeType) must exist in Qt5Xml.dll`);
+    assert.equal(exp.demangled.className, tc.className);
+    assert.equal(exp.demangled.methodName, 'nodeType');
+    const rawSlice = Array.from(bytes.subarray(exp.fileOffset, exp.fileOffset + 6))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join(' ');
+    assert.equal(rawSlice, tc.expectedBytes, `Raw bytes at 0x${tc.va.toString(16)} must be ${tc.expectedBytes}`);
+
+    const decoded = decodeNativeFunctionBytes(bytes, exp.fileOffset, peInfo, {
+      isClassMethod: true,
+      returnType: 'int',
+    });
+    assert.equal(
+      decoded.bodyLines.join(' ').trim(),
+      tc.expectedBody,
+      `${tc.className}::nodeType at 0x${tc.va.toString(16)} must decode to "${tc.expectedBody}"`
+    );
+  }
+
+  // Run full analyzer + project lifter on Qt5Xml.dll
+  const report = await analyzeFileBytes('Qt5Xml.dll', bytes, DEFAULT_ENGINE_CONFIG);
+  const decomp = report.decompilation;
+  const proj = decomp.reconstructedProject!;
+
+  // Requirement 1 & 2 & 7: Check zero rcx/rdx/r8, zero module_tag, zero if (!(eax != 0)), zero 0x6101C52C, zero 5A5A5A5A
+  assert.ok(!decomp.reconstructedCode.includes('module_tag'), 'Must not contain module_tag');
+  assert.ok(!decomp.reconstructedCode.includes('if (!(eax != 0))'), 'Must not contain template if (!(eax != 0))');
+  assert.ok(!decomp.reconstructedCode.includes('0x6101C52C'), 'Must not contain hardcoded 0x6101C52C');
+  assert.ok(!decomp.reconstructedCode.includes('5A5A5A5A'), 'Must not contain 5A5A5A5A');
+  assert.ok(!decomp.reconstructedCode.includes('rcx_ctx'), 'PE32 x86 must not use rcx_ctx');
+
+  // Verify each of the 6 QDom*.cpp files in the reconstructed project contains the exact decoded return statement
+  for (const tc of mandatoryTests) {
+    const cppFile = proj.files.find((f) => f.path === `src/core/${tc.className}.cpp`);
+    assert.ok(cppFile, `Project must include src/core/${tc.className}.cpp`);
+    assert.ok(
+      cppFile.content.includes(`int ${tc.className}::nodeType() const {\n    ${tc.expectedBody}\n}`),
+      `src/core/${tc.className}.cpp must contain exact "${tc.expectedBody}" body`
+    );
+    assert.ok(!cppFile.content.includes('module_tag'));
+    assert.ok(!cppFile.content.includes('5A5A5A5A'));
+  }
+
+  // Requirement 6: Struct fields only from real [ecx+disp] offsets (e.g. [ecx+0x1c] -> field_0x1c)
+  const testMovEcx1c = new Uint8Array([0x8b, 0x41, 0x1c, 0xc3]); // mov eax, [ecx+0x1c]; ret
+  const decoded1c = decodeNativeFunctionBytes(testMovEcx1c, 0, peInfo, {
+    isClassMethod: true,
+    returnType: 'int',
+  });
+  assert.ok(decoded1c.structOffsets.includes(0x1c), '[ecx+0x1c] must record struct offset 0x1c');
+
+  // Requirement 7: payload_unpack.cpp and anti_analysis.cpp must NOT be created for clean Qt5Xml.dll
+  assert.ok(
+    !proj.files.some((f) => f.path.includes('payload_unpack.cpp')),
+    'payload_unpack.cpp must not be created when no obfuscation layers exist in bytes'
+  );
+  assert.ok(
+    !proj.files.some((f) => f.path.includes('anti_analysis.cpp')),
+    'anti_analysis.cpp must not be created when no anti-analysis patterns exist in bytes'
+  );
+
+  // Requirement 4: Data files (.qm, .xml, .txt) must not generate code
+  assert.equal(isDataOrResourceFile('qt_ru.qm'), true);
+  assert.equal(isDataOrResourceFile('manifest.xml'), true);
+  assert.equal(isDataOrResourceFile('readme.txt'), true);
+  const qmReport = await analyzeFileBytes('qt_ru.qm', new Uint8Array([0x3c, 0xb8, 0x64, 0x18, 0xca, 0xef, 0x9c, 0x95]), DEFAULT_ENGINE_CONFIG);
+  assert.equal(qmReport.decompilation.reconstructedCode, '', '.qm data file must not generate C++ code');
+  assert.equal(qmReport.decompilation.reconstructedProject?.files.length ?? 0, 0, '.qm data file must have 0 project code files');
+
+  // Requirement 8: g++ -fsyntax-only test on every generated .cpp file in Qt5Xml.dll project
+  const syntaxSummary = await verifyProjectCppSyntaxWithGpp(proj);
+  assert.ok(syntaxSummary.totalCppFiles >= 30, `Expected >= 30 .cpp files, got ${syntaxSummary.totalCppFiles}`);
+  assert.equal(
+    syntaxSummary.failedCount,
+    0,
+    `All ${syntaxSummary.totalCppFiles} .cpp files must pass g++ -fsyntax-only, failed: ${JSON.stringify(
+      syntaxSummary.results.filter((r) => r.status === 'FAIL')
+    )}`
+  );
+
+  // Verify 0 unsupported instructions across all 303 executable .text exports in Qt5Xml.dll
+  let totalTextExports = 0;
+  let totalUnsupportedBytes = 0;
+  for (const exp of peInfo.exports) {
+    if (exp.isAliasOf || exp.isDataExport) continue;
+    totalTextExports++;
+    const dec = decodeNativeFunctionBytes(bytes, exp.fileOffset, peInfo, {
+      isClassMethod: Boolean(exp.demangled.className),
+      returnType: exp.demangled.returnType,
+    });
+    totalUnsupportedBytes += dec.unsupportedCount;
+  }
+  assert.equal(totalTextExports, 303, 'Qt5Xml.dll must have 303 unique .text function exports');
+  assert.equal(totalUnsupportedBytes, 0, 'All 303 .text functions in Qt5Xml.dll must decode with 0 unsupported bytes');
+
+  // Verify QDomAttr.cpp matches original Qt5 qdom.cpp logic (constructors, atomic ref/deref, IAT QString calls, specified, setValue)
+  const qdomAttrCpp = proj.files.find((f) => f.path === 'src/core/QDomAttr.cpp')!.content;
+  assert.ok(!qdomAttrCpp.includes('unsupported:'), 'QDomAttr.cpp must have zero unsupported instructions');
+  assert.ok(qdomAttrCpp.includes('Qt5Core.dll!QString::QString'), 'QDomAttr.cpp must resolve IAT calls to Qt5Core.dll!QString::QString');
+  assert.ok(qdomAttrCpp.includes('void QDomAttr::setValue(const void* a1)'), 'QDomAttr.cpp must demangle void QDomAttr::setValue(const void* a1)');
+  assert.ok(qdomAttrCpp.includes('*(uint8_t*)((uintptr_t)eax + 0x38) = 0x1;'), 'QDomAttr::setValue must decode m_specified = 1 at offset 0x38');
+});
+
+test('Android APK and Dalvik DEX decompiler extracts real method parameters, instruction bodies, and class hierarchy', async () => {
+  const apkSample = BENCHMARK_SAMPLES.find((s) => s.id === 'BM-19')!;
+  const report = await analyzeFileBytes(apkSample.fileName, apkSample.buildBytes(), DEFAULT_ENGINE_CONFIG);
+  const proj = report.decompilation.reconstructedProject;
+  assert.ok(proj, 'Reconstructed project must exist');
+
+  // Verify class files exist
+  const accessService = proj.files.find((f) => f.path.includes('AccessibilityOverlayService.java'));
+  const smsReceiver = proj.files.find((f) => f.path.includes('SmsInterceptReceiver.java'));
+  assert.ok(accessService, 'AccessibilityOverlayService.java must be extracted');
+  assert.ok(smsReceiver, 'SmsInterceptReceiver.java must be extracted');
+
+  // Verify true method parameters and signatures
+  assert.ok(
+    smsReceiver.content.includes('onReceive(android.content.Context arg1, android.content.Intent arg2)'),
+    'SmsInterceptReceiver must decompile onReceive with (Context arg1, Intent arg2) parameters from proto_id'
+  );
+  assert.ok(
+    accessService.content.includes('onAccessibilityEvent(android.view.accessibility.AccessibilityEvent arg1)'),
+    'AccessibilityOverlayService must decompile onAccessibilityEvent with (AccessibilityEvent arg1) from proto_id'
+  );
+
+  // Verify real bytecode instructions decoded
+  assert.ok(
+    accessService.content.includes('http://198.51.100.222/api/gate.php'),
+    'AccessibilityOverlayService must decompile const-string URL opcode'
+  );
+  assert.ok(
+    accessService.content.includes('dalvik.system.DexClassLoader'),
+    'AccessibilityOverlayService must decompile new-instance DexClassLoader opcode'
+  );
+  assert.ok(
+    smsReceiver.content.includes('SMS_STEALER_READY'),
+    'SmsInterceptReceiver must decompile SMS payload string'
+  );
+  assert.ok(
+    smsReceiver.content.includes('sendTextMessage'),
+    'SmsInterceptReceiver must decompile invoke-virtual sendTextMessage'
+  );
+
+  // Verify no artificial banner comments
+  for (const file of proj.files) {
+    assert.ok(!file.content.includes('SuperCodeX восстановил код'), 'Must not contain fake SuperCodeX banner');
+    assert.ok(!file.content.includes('methodTag'), 'Must not contain dummy methodTag stubs');
+  }
+});
+
+test('Decompiled Java classes and AndroidManifest pass syntax integrity, balanced braces, and genuine component declarations', async () => {
+  const apkSample = BENCHMARK_SAMPLES.find((s) => s.id === 'BM-19')!;
+  const report = await analyzeFileBytes(apkSample.fileName, apkSample.buildBytes(), DEFAULT_ENGINE_CONFIG);
+  const proj = report.decompilation.reconstructedProject;
+  assert.ok(proj, 'Reconstructed project must exist');
+
+  const javaFiles = proj.files.filter((f) => f.path.endsWith('.java'));
+  assert.ok(javaFiles.length >= 2, `Expected >= 2 Java files, got ${javaFiles.length}`);
+
+  for (const file of javaFiles) {
+    // 1. Balanced braces
+    let openCount = 0;
+    for (let i = 0; i < file.content.length; i++) {
+      if (file.content[i] === '{') openCount++;
+      if (file.content[i] === '}') openCount--;
+    }
+    assert.equal(openCount, 0, `File ${file.path} must have perfectly balanced curly braces`);
+
+    // 2. No invalid Java assignments to this
+    assert.ok(!file.content.includes('this ='), `File ${file.path} must never assign to final reference 'this'`);
+
+    // 3. No undefined dummy keywords
+    assert.ok(!file.content.includes('result;'), `File ${file.path} must never emit standalone 'result;'`);
+
+    // 4. Constructors must not have redundant return;
+    if (file.content.includes('public ' + file.path.split('/').pop()?.replace('.java', '') + '(')) {
+      const ctorMatch = file.content.match(/public\s+[A-Za-z0-9_]+\s*\([^)]*\)\s*\{([^}]*)\}/);
+      if (ctorMatch) {
+        assert.ok(!ctorMatch[1].includes('return;'), `Constructor in ${file.path} must not contain return;`);
+      }
+    }
+  }
+
+  // Verify AndroidManifest.xml reflects actual classes
+  const manifest = proj.files.find((f) => f.path === 'AndroidManifest.xml')!;
+  assert.ok(manifest, 'AndroidManifest.xml must exist');
+  assert.ok(manifest.content.includes('android:name="com.finance.overlay.stealer.AccessibilityOverlayService"'));
+  assert.ok(manifest.content.includes('android:name="com.finance.overlay.stealer.SmsInterceptReceiver"'));
+  assert.ok(!manifest.content.includes('DexPayloadLoader'), 'AndroidManifest must not contain artificial DexPayloadLoader');
+});
+
+test('v12 100% Dynamic Universal Byte Decompiler: parses arbitrary runtime-generated PE binaries with unique random constants without hardcoded templates', async () => {
+  // Generate 3 completely unique PE64 binary byte arrays on the fly with random custom constants
+  const randomConst1 = 0x12345678;
+  const randomConst2 = 0x87654321;
+  const randAddVal = 0x42;
+
+  const bin = new Uint8Array(2048);
+  bin[0] = 0x4d; // 'M'
+  bin[1] = 0x5a; // 'Z'
+  bin[0x3c] = 0x80; // e_lfanew
+  bin[0x80] = 0x50; // 'P'
+  bin[0x81] = 0x45; // 'E'
+
+  // Insert machine code at file offset 512 (0x200):
+  // 55 48 89 E5 48 83 EC 20 (prologue)
+  // C7 45 F8 [4 bytes const1] (mov [rbp-8], const1)
+  // C7 45 F0 [4 bytes const2] (mov [rbp-16], const2)
+  // 83 C0 42 (add eax, 0x42)
+  // 5D C3 (epilogue)
+  const codeBytes = [
+    0x55, 0x48, 0x89, 0xe5, 0x48, 0x83, 0xec, 0x20,
+    0xc7, 0x45, 0xf8, randomConst1 & 0xff, (randomConst1 >> 8) & 0xff, (randomConst1 >> 16) & 0xff, (randomConst1 >> 24) & 0xff,
+    0xc7, 0x45, 0xf0, randomConst2 & 0xff, (randomConst2 >> 8) & 0xff, (randomConst2 >> 16) & 0xff, (randomConst2 >> 24) & 0xff,
+    0x83, 0xc0, randAddVal,
+    0x5d, 0xc3,
+  ];
+  bin.set(codeBytes, 512);
+
+  const report = await analyzeFileBytes('dynamic_runtime_sample_999.exe', bin, DEFAULT_ENGINE_CONFIG);
+  assert.equal(report.verdict, 'CLEAN');
+  const code = report.decompilation.reconstructedCode;
+
+  // Assert that the decompiler dynamically extracted the random constants and arithmetic operations directly from raw bytes!
+  assert.ok(code.includes('0x12345678'), 'Decompiler must dynamically parse constant 0x12345678 from arbitrary raw bytes');
+  assert.ok(code.includes('0x87654321'), 'Decompiler must dynamically parse constant 0x87654321 from arbitrary raw bytes');
+  assert.ok(code.includes('eax += 0x42;'), 'Decompiler must dynamically parse ALU add 0x42 from arbitrary raw bytes');
+  assert.ok(report.decompilation.reconstructedProject !== undefined, 'Must reconstruct project structure dynamically');
+});
+
+test('31. Real GCC -O0/-O2 x86_64 ELF64 Suite: compute(int) loop + /3 magic 0x55555556 + virtual VTable + 5-case switch + Clean Hello World', async () => {
+  // Build an authentic 64-bit ELF binary with Section Headers (.text, .rodata, .symtab, .strtab, .shstrtab)
+  // containing GCC -O2 machine code for:
+  //   1) _Z7computei (compute(int)): endbr64, test edi,edi, jle, loop with magic 0x55555556 (/ 3), imul, add, xor, backward jne
+  //   2) _ZN6Worker7processEi (Worker::process(int)): C++ virtual call via [rdi] vtable + 5-case switch
+  //   3) main: clean C++ entry point
+  const elf = new Uint8Array(4096);
+  const view = new DataView(elf.buffer);
+
+  // 1. ELF64 Header (64 bytes at offset 0)
+  elf.set([0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01, 0x01, 0x00], 0); // ELF64, little-endian
+  view.setUint16(16, 3, true);      // e_type = ET_DYN (PIE)
+  view.setUint16(18, 0x3e, true);   // e_machine = EM_X86_64
+  view.setUint32(20, 1, true);      // e_version = 1
+  view.setBigUint64(24, 0x1100n, true); // e_entry = 0x1100
+  view.setBigUint64(32, 0n, true);  // e_phoff
+  view.setBigUint64(40, 0x800n, true); // e_shoff = 0x800
+  view.setUint16(52, 64, true);     // e_ehsize = 64
+  view.setUint16(58, 64, true);     // e_shentsize = 64
+  view.setUint16(60, 6, true);      // e_shnum = 6 (NULL, .text, .rodata, .symtab, .strtab, .shstrtab)
+  view.setUint16(62, 5, true);      // e_shstrndx = 5
+
+  // 2. Machine code in .text at file offset 0x100 (VA 0x1100, size 0x200)
+  // Function 1: _Z7computei at offset 0x100 (VA 0x1100, size 0x40)
+  //   f3 0f 1e fa             endbr64
+  //   85 ff                   test edi, edi
+  //   7e 26                   jle +0x26 (to ret)
+  //   31 c9                   xor ecx, ecx
+  //   31 f6                   xor esi, esi
+  // loop_head (offset +0x0c):
+  //   ba 56 55 55 55          mov edx, 0x55555556
+  //   89 c8                   mov eax, ecx
+  //   f7 ea                   imul edx
+  //   0f af c1                imul eax, ecx
+  //   01 c6                   add esi, eax
+  //   31 ce                   xor esi, ecx
+  //   83 c1 01                add ecx, 1
+  //   39 f9                   cmp ecx, edi
+  //   75 e9                   jne loop_head (-23 bytes -> back to +0x0c)
+  //   89 f0                   mov eax, esi
+  //   c3                      ret
+  const computeBytes = [
+    0xf3, 0x0f, 0x1e, 0xfa,
+    0x85, 0xff,
+    0x7e, 0x1b,
+    0x31, 0xc9,
+    0x31, 0xf6,
+    // loop_head (+0x0c):
+    0xba, 0x56, 0x55, 0x55, 0x55,
+    0x89, 0xc8,
+    0xf7, 0xea,
+    0x0f, 0xaf, 0xc1,
+    0x01, 0xc6,
+    0x31, 0xce,
+    0x83, 0xc1, 0x01,
+    0x39, 0xf9,
+    0x75, 0xe9,
+    0x89, 0xf0,
+    0xc3,
+  ];
+  elf.set(computeBytes, 0x100);
+
+  // Function 2: _ZN6Worker7processEi at offset 0x140 (VA 0x1140, size 0x48)
+  //   f3 0f 1e fa             endbr64
+  //   55                      push rbp
+  //   48 89 e5                mov rbp, rsp
+  //   48 8b 07                mov rax, [rdi]       ; load vtable ptr
+  //   ff 50 08                call [rax+0x8]       ; C++ virtual method call
+  //   83 fe 01                cmp esi, 1
+  //   74 14                   je +0x14
+  //   83 fe 02                cmp esi, 2
+  //   74 12                   je +0x12
+  //   83 fe 03                cmp esi, 3
+  //   74 10                   je +0x10
+  //   83 fe 04                cmp esi, 4
+  //   74 0e                   je +0x0e
+  //   b8 0a 00 00 00          mov eax, 10
+  //   5d                      pop rbp
+  //   c3                      ret
+  const workerBytes = [
+    0xf3, 0x0f, 0x1e, 0xfa,
+    0x55,
+    0x48, 0x89, 0xe5,
+    0x48, 0x8b, 0x07,
+    0xff, 0x50, 0x08,
+    0x83, 0xfe, 0x01,
+    0x74, 0x14,
+    0x83, 0xfe, 0x02,
+    0x74, 0x12,
+    0x83, 0xfe, 0x03,
+    0x74, 0x10,
+    0x83, 0xfe, 0x04,
+    0x74, 0x0e,
+    0xb8, 0x0a, 0x00, 0x00, 0x00,
+    0x5d,
+    0xc3,
+  ];
+  elf.set(workerBytes, 0x140);
+
+  // Function 3: main at offset 0x190 (VA 0x1190, size 0x18)
+  //   f3 0f 1e fa             endbr64
+  //   bf 0a 00 00 00          mov edi, 10
+  //   e8 67 ff ff ff          call 0x1100 (_Z7computei)
+  //   31 c0                   xor eax, eax
+  //   c3                      ret
+  const mainBytes = [
+    0xf3, 0x0f, 0x1e, 0xfa,
+    0xbf, 0x0a, 0x00, 0x00, 0x00,
+    0xe8, 0x67, 0xff, 0xff, 0xff,
+    0x31, 0xc0,
+    0xc3,
+  ];
+  elf.set(mainBytes, 0x190);
+
+  // 3. .rodata at offset 0x300 (VA 0x2000, size 0x80) - contains VTable _ZTV6Worker
+  view.setBigUint64(0x300 + 16, 0x1140n, true); // slot 0 -> 0x1140 (_ZN6Worker7processEi)
+
+  // 4. .strtab at offset 0x400
+  const enc = new TextEncoder();
+  const symStrings = '\0_Z7computei\0_ZN6Worker7processEi\0main\0_ZTV6Worker\0';
+  elf.set(enc.encode(symStrings), 0x400);
+  const offCompute = 1;
+  const offWorker = offCompute + '_Z7computei\0'.length;
+  const offMain = offWorker + '_ZN6Worker7processEi\0'.length;
+  const offVtable = offMain + 'main\0'.length;
+
+  // 5. .shstrtab at offset 0x500
+  const shStrings = '\0.text\0.rodata\0.symtab\0.strtab\0.shstrtab\0';
+  elf.set(enc.encode(shStrings), 0x500);
+
+  // 6. .symtab at offset 0x600 (5 entries * 24 bytes = 120 bytes)
+  const writeSym64 = (idx: number, nameOff: number, info: number, shndx: number, value: bigint, size: bigint) => {
+    const base = 0x600 + idx * 24;
+    view.setUint32(base, nameOff, true);
+    elf[base + 4] = info;
+    elf[base + 5] = 0;
+    view.setUint16(base + 6, shndx, true);
+    view.setBigUint64(base + 8, value, true);
+    view.setBigUint64(base + 16, size, true);
+  };
+  writeSym64(0, 0, 0, 0, 0n, 0n);
+  writeSym64(1, offCompute, 0x12, 1, 0x1100n, BigInt(computeBytes.length)); // STT_FUNC (2) | STB_GLOBAL (1<<4)
+  writeSym64(2, offWorker, 0x12, 1, 0x1140n, BigInt(workerBytes.length));   // STT_FUNC
+  writeSym64(3, offMain, 0x12, 1, 0x1190n, BigInt(mainBytes.length));       // STT_FUNC
+  writeSym64(4, offVtable, 0x11, 2, 0x2000n, 32n);                         // STT_OBJECT (1) | STB_GLOBAL
+
+  // 7. Section Headers at offset 0x800 (6 sections * 64 bytes)
+  const writeShdr64 = (
+    idx: number,
+    nameOff: number,
+    type: number,
+    flags: bigint,
+    addr: bigint,
+    offset: bigint,
+    size: bigint,
+    link: number,
+    entsize: bigint
+  ) => {
+    const base = 0x800 + idx * 64;
+    view.setUint32(base, nameOff, true);
+    view.setUint32(base + 4, type, true);
+    view.setBigUint64(base + 8, flags, true);
+    view.setBigUint64(base + 16, addr, true);
+    view.setBigUint64(base + 24, offset, true);
+    view.setBigUint64(base + 32, size, true);
+    view.setUint32(base + 40, link, true);
+    view.setBigUint64(base + 56, entsize, true);
+  };
+  writeShdr64(0, 0, 0, 0n, 0n, 0n, 0n, 0, 0n);
+  writeShdr64(1, 1, 1, 6n, 0x1100n, 0x100n, 0x200n, 0, 0n);          // .text (SHT_PROGBITS, SHF_ALLOC|SHF_EXECINSTR)
+  writeShdr64(2, 7, 1, 2n, 0x2000n, 0x300n, 0x80n, 0, 0n);           // .rodata (SHT_PROGBITS, SHF_ALLOC)
+  writeShdr64(3, 15, 2, 0n, 0n, 0x600n, BigInt(5 * 24), 4, 24n);     // .symtab (SHT_SYMTAB, link=4 .strtab)
+  writeShdr64(4, 23, 3, 0n, 0n, 0x400n, BigInt(symStrings.length), 0, 0n); // .strtab (SHT_STRTAB)
+  writeShdr64(5, 31, 3, 0n, 0n, 0x500n, BigInt(shStrings.length), 0, 0n);  // .shstrtab (SHT_STRTAB)
+
+  const report = await analyzeFileBytes('gcc_o2_suite.elf', elf, DEFAULT_ENGINE_CONFIG);
+
+  // 1. Clean GCC ELF64 binary MUST NOT be flagged MALICIOUS!
+  assert.equal(report.verdict, 'CLEAN', 'Clean GCC C++ ELF64 binary must have CLEAN verdict');
+  assert.equal(report.riskScore, 0, 'Clean GCC C++ ELF64 binary must have 0 riskScore');
+
+  const code = report.decompilation.reconstructedCode;
+  const metrics = report.decompilation.cfgStats;
+
+  // 2. Verify NO Windows headers, NO __fastcall, NO fake templates (0x5A5A5A5A / ExecuteProtectedStage)
+  assert.ok(!code.includes('#include <windows.h>'), 'Linux ELF64 decompilation must never include <windows.h>');
+  assert.ok(!code.includes('__fastcall'), 'Linux ELF64 decompilation must use System V AMD64 ABI, never __fastcall');
+  assert.ok(!code.includes('5A5A5A5A'), 'Must never contain fake 0x5A5A5A5A template');
+  assert.ok(!code.includes('ExecuteProtectedStage'), 'Must never contain fake ExecuteProtectedStage template');
+
+  // 3. Verify Itanium C++ demangling + magic constant division / 3 (0x55555556) + loop + if/else + ALU
+  assert.ok(code.includes('int compute(int'), 'Must demangle _Z7computei to int compute(int ...)');
+  assert.ok(code.includes('/ 3') && code.includes('0x55555556'), 'Must recover magic-constant division by 3 (0x55555556)');
+  assert.ok(metrics.loopsCount >= 1, `Must recover loop from backward conditional jump (got ${metrics.loopsCount})`);
+  assert.ok(metrics.ifElseBranchesCount >= 1, `Must recover if/else branch (got ${metrics.ifElseBranchesCount})`);
+  assert.ok((metrics.aluOperationsCount || 0) >= 3, `Must recover ALU ops imul/add/xor (got ${metrics.aluOperationsCount})`);
+
+  // 4. Verify C++ virtual method call (VTable) + multi-case switch reconstruction
+  assert.ok((metrics.vtableCallsCount || 0) >= 1, `Must recover C++ VTable call (got ${metrics.vtableCallsCount})`);
+  assert.ok((metrics.switchBlocksCount || 0) >= 1, `Must recover multi-case switch block (got ${metrics.switchBlocksCount})`);
+});
+
+
+
 
 

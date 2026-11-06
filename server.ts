@@ -1,6 +1,10 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
+import fs from 'fs';
+import path from 'path';
+import JSZip from 'jszip';
+import { verifyProjectCppSyntaxWithGpp } from './src/engine/cppSyntaxValidator';
 
 dotenv.config();
 
@@ -38,21 +42,114 @@ ${code.slice(0, 12000)}
 3. **Обнаруженные аномалии нулевого дня (Zero-Day)** или скрытые техники уклонения
 4. **Рекомендации по нейтрализации и защите**`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: prompt,
-    });
+    const candidateModels = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
+    let lastError: any = null;
+    let successfulAnalysis = '';
+    let usedModel = '';
 
-    return res.json({
-      success: true,
-      analysis: response.text,
-      modelUsed: 'gemini-3.8-flash',
+    for (const modelName of candidateModels) {
+      try {
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: prompt,
+        });
+        if (response.text) {
+          successfulAnalysis = response.text;
+          usedModel = modelName;
+          break;
+        }
+      } catch (err: any) {
+        console.warn(`Model ${modelName} failed, trying fallback. Error:`, err.message || err);
+        lastError = err;
+      }
+    }
+
+    if (successfulAnalysis) {
+      return res.json({
+        success: true,
+        analysis: successfulAnalysis,
+        modelUsed: usedModel,
+      });
+    }
+
+    return res.status(503).json({
+      success: false,
+      error: `Все модели Gemini недоступны в данный момент (503/Quota): ${lastError?.message || 'High Demand'}`,
     });
   } catch (err: any) {
     console.error('AI Audit Error:', err);
     return res.status(500).json({
       success: false,
       error: err.message || 'Error executing AI code audit',
+    });
+  }
+});
+
+// API Endpoint: Interactive Chat with AI Threat Auditor about Decompiled Code
+app.post('/api/ai-chat', async (req, res) => {
+  try {
+    const { messages, codeContext, fileName } = req.body;
+    if (!messages || !Array.isArray(messages)) {
+      return res.status(400).json({ error: 'Messages array is required' });
+    }
+
+    const ai = getAiClient();
+    const systemInstruction = `Ты — ведущий старший эксперт по вирусологии, реверс-инжинирингу и кибербезопасности SuperCodeX AI.
+Пользователь задает тебе вопросы о декомпилированном исходном коде файла "${fileName || 'sample.exe'}".
+
+Контекст декомпилированного кода C++:
+\`\`\`cpp
+${(codeContext || '').slice(0, 10000)}
+\`\`\`
+
+Отвечай профессионально, вежливо, на русском языке. Давай точные ответы с указанием названий функций, аргументов, системных вызовов, техник нейтрализации и инструкций для отладчиков (x64dbg, WinDbg, IDA Pro).`;
+
+    // Construct full prompt from chat history
+    const conversationPrompt = messages
+      .map((m: any) => `${m.role === 'user' ? 'Пользователь' : 'ИИ-Вирусолог'}: ${m.content}`)
+      .join('\n\n');
+
+    const fullPrompt = `${systemInstruction}\n\n=== ИСТОРИЯ ДИАЛОГА ===\n${conversationPrompt}\n\nИИ-Вирусолог:`;
+
+    const candidateModels = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
+    let lastError: any = null;
+    let replyText = '';
+    let usedModel = '';
+
+    for (const modelName of candidateModels) {
+      try {
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: fullPrompt,
+        });
+        if (response.text) {
+          replyText = response.text;
+          usedModel = modelName;
+          break;
+        }
+      } catch (err: any) {
+        console.warn(`Chat model ${modelName} failed, trying fallback.`, err.message || err);
+        lastError = err;
+      }
+    }
+
+    if (replyText) {
+      return res.json({
+        success: true,
+        reply: replyText,
+        modelUsed: usedModel,
+      });
+    }
+
+    return res.status(503).json({
+      success: false,
+      error: `Все модели Gemini недоступны в данный момент: ${lastError?.message || 'High Demand'}`,
+    });
+  } catch (err: any) {
+    console.error('AI Chat Error:', err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Error executing AI chat',
     });
   }
 });
@@ -87,6 +184,228 @@ app.get('/api/vt/files/:hash', async (req, res) => {
     });
   } catch (e: any) {
     return res.json({ success: false, error: e.message });
+  }
+});
+
+// Endpoint: Run real g++ -fsyntax-only verification on every .cpp file in a ReconstructedProject
+app.post('/api/verify-cpp-syntax', (req, res) => {
+  try {
+    const { project } = req.body;
+    if (!project || !Array.isArray(project.files)) {
+      return res.status(400).json({ success: false, error: 'Project files array is required' });
+    }
+    const syntaxReport = verifyProjectCppSyntaxWithGpp(project);
+    return res.json({
+      success: true,
+      report: syntaxReport,
+    });
+  } catch (e: any) {
+    return res.status(500).json({
+      success: false,
+      error: e.message || 'g++ syntax check failed',
+    });
+  }
+});
+
+const REPO_FILES_TO_SYNC = [
+  'README.md',
+  'package.json',
+  'tsconfig.json',
+  'vite.config.ts',
+  'index.html',
+  'metadata.json',
+  'server.ts',
+  '.github/workflows/deploy.yml',
+  'src/main.tsx',
+  'src/App.tsx',
+  'src/index.css',
+  'src/components/ArchitectureInspectorView.tsx',
+  'src/components/BenchmarkView.tsx',
+  'src/components/FileScannerView.tsx',
+  'src/components/GithubRepoModal.tsx',
+  'src/components/GithubSiteView.tsx',
+  'src/components/RealGhidraBenchView.tsx',
+  'src/components/VirusTotalAuditView.tsx',
+  'src/components/WindowsDownloadModal.tsx',
+  'src/components/YaraRulesLabView.tsx',
+  'src/engine/archive.ts',
+  'src/engine/benchmark.ts',
+  'src/engine/cppSyntaxValidator.ts',
+  'src/engine/decompiler.ts',
+  'src/engine/ghidraIntegration.ts',
+  'src/engine/peExportAndDecoder.ts',
+  'src/engine/projectLifter.ts',
+  'src/engine/scanner.ts',
+  'src/engine/scanner.test.ts',
+  'src/engine/virustotal.ts',
+];
+
+function collectRepoFiles(): Record<string, string> {
+  const filesMap: Record<string, string> = {};
+  const rootDir = process.cwd();
+  for (const relPath of REPO_FILES_TO_SYNC) {
+    const fullPath = path.join(rootDir, relPath);
+    if (fs.existsSync(fullPath)) {
+      filesMap[relPath] = fs.readFileSync(fullPath, 'utf-8');
+    }
+  }
+  return filesMap;
+}
+
+// Endpoint to get all real repository source files for ZIP export or inspection
+app.get('/api/github-bundle', (_req, res) => {
+  try {
+    const files = collectRepoFiles();
+    return res.json({
+      success: true,
+      fileCount: Object.keys(files).length,
+      files,
+    });
+  } catch (e: any) {
+    return res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// Endpoint to download the full standalone project/CLI engine via 1 curl/wget command
+app.get('/api/download-cli', async (_req, res) => {
+  try {
+    const files = collectRepoFiles();
+    const zip = new JSZip();
+    for (const [relPath, content] of Object.entries(files)) {
+      zip.file(`SuperCodeX-main/${relPath}`, content);
+      // Also write at root so both `cd SuperCodeX-main` and direct root extraction work
+      zip.file(relPath, content);
+    }
+    const qtDllPath = path.join(process.cwd(), 'tmp/Qt5Xml.dll');
+    if (fs.existsSync(qtDllPath)) {
+      const dllBytes = fs.readFileSync(qtDllPath);
+      zip.file('SuperCodeX-main/tmp/Qt5Xml.dll', dllBytes);
+      zip.file('tmp/Qt5Xml.dll', dllBytes);
+    }
+    const buffer = await zip.generateAsync({ type: 'nodebuffer' });
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', 'attachment; filename="SuperCodeX.zip"');
+    return res.send(buffer);
+  } catch (e: any) {
+    return res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// Endpoint to push all current repository files directly to GitHub via GitHub REST Git Data API
+app.post('/api/github-push', async (req, res) => {
+  try {
+    const { token, repo = 'k27212802-lab/SuperCodeX', branch = 'main', commitMessage } = req.body;
+    if (!token || typeof token !== 'string' || !token.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Укажите GitHub Personal Access Token (ghp_... или github_pat_...) с правами repo / workflow для отправки коммита.',
+      });
+    }
+
+    const cleanToken = token.trim();
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${cleanToken}`,
+      Accept: 'application/vnd.github+json',
+      'Content-Type': 'application/json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'User-Agent': 'SuperCodeX-GitHub-Sync',
+    };
+
+    // 1. Get latest commit SHA on target branch
+    const refRes = await fetch(`https://api.github.com/repos/${repo}/git/ref/heads/${branch}`, { headers });
+    if (!refRes.ok) {
+      const errBody = await refRes.text();
+      return res.status(refRes.status).json({
+        success: false,
+        error: `Не удалось получить ветку ${branch} в ${repo} (HTTP ${refRes.status}): ${errBody}`,
+      });
+    }
+    const refData: any = await refRes.json();
+    const latestCommitSha = refData.object.sha;
+
+    // 2. Get base tree SHA from latest commit
+    const commitRes = await fetch(`https://api.github.com/repos/${repo}/git/commits/${latestCommitSha}`, { headers });
+    if (!commitRes.ok) {
+      const errBody = await commitRes.text();
+      return res.status(commitRes.status).json({
+        success: false,
+        error: `Не удалось получить дерево коммита (HTTP ${commitRes.status}): ${errBody}`,
+      });
+    }
+    const commitData: any = await commitRes.json();
+    const baseTreeSha = commitData.tree.sha;
+
+    // 3. Collect all real local files and create tree entries
+    const files = collectRepoFiles();
+    const treeEntries = Object.entries(files).map(([filePath, content]) => ({
+      path: filePath,
+      mode: '100644',
+      type: 'blob',
+      content,
+    }));
+
+    // 4. Create new Git Tree
+    const treeRes = await fetch(`https://api.github.com/repos/${repo}/git/trees`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        base_tree: baseTreeSha,
+        tree: treeEntries,
+      }),
+    });
+    if (!treeRes.ok) {
+      const errBody = await treeRes.text();
+      return res.status(treeRes.status).json({
+        success: false,
+        error: `Ошибка создания Git Tree (HTTP ${treeRes.status}): ${errBody}`,
+      });
+    }
+    const treeData: any = await treeRes.json();
+
+    // 5. Create Commit
+    const newCommitRes = await fetch(`https://api.github.com/repos/${repo}/git/commits`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        message: commitMessage || 'Update entire SuperCodeX interface to Red Edition + Pure Project Decompiler (0-to-N folders/files)',
+        tree: treeData.sha,
+        parents: [latestCommitSha],
+      }),
+    });
+    if (!newCommitRes.ok) {
+      const errBody = await newCommitRes.text();
+      return res.status(newCommitRes.status).json({
+        success: false,
+        error: `Ошибка создания коммита (HTTP ${newCommitRes.status}): ${errBody}`,
+      });
+    }
+    const newCommitData: any = await newCommitRes.json();
+
+    // 6. Update branch ref
+    const updateRefRes = await fetch(`https://api.github.com/repos/${repo}/git/refs/heads/${branch}`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify({
+        sha: newCommitData.sha,
+        force: true,
+      }),
+    });
+    if (!updateRefRes.ok) {
+      const errBody = await updateRefRes.text();
+      return res.status(updateRefRes.status).json({
+        success: false,
+        error: `Ошибка обновления ветки ${branch} (HTTP ${updateRefRes.status}): ${errBody}`,
+      });
+    }
+
+    return res.json({
+      success: true,
+      commitSha: newCommitData.sha,
+      commitUrl: newCommitData.html_url || `https://github.com/${repo}/commit/${newCommitData.sha}`,
+      filesUpdated: treeEntries.length,
+    });
+  } catch (e: any) {
+    return res.status(500).json({ success: false, error: e.message });
   }
 });
 
