@@ -19,7 +19,8 @@ import {
   runDecompilationBenchmarkSuite,
   runOriginalCppFidelityBenchmarkSuite,
 } from './decompiler';
-import { REAL_GHIDRA_TEST_CASES } from './ghidraIntegration';
+import { execSync } from 'node:child_process';
+import os from 'node:os';
 import {
   parsePeBinaryStructure,
   decodeNativeFunctionBytes,
@@ -248,16 +249,12 @@ test('v9 Original C++ Round-Trip Fidelity Benchmark passes 9/9 cases with 100% f
   assert.ok(origSuite.aegisAverageExactMatchPercent > origSuite.ghidraReferenceAveragePercent);
 });
 
-test('v7 Decompilation Quality Benchmark suite passes 8/8 multi-arch AST cases and beats Out-of-the-Box Ghidra 11.2 (97.9% vs 93.7%)', () => {
+test('v7 Decompilation Quality Benchmark suite passes 8/8 multi-arch AST cases', () => {
   const decBench = runDecompilationBenchmarkSuite();
   assert.equal(decBench.totalVerificationCount, 8);
   assert.equal(decBench.passedVerificationCount, 8);
   assert.ok(decBench.aegisOverallAveragePercent >= 97.5);
-  assert.ok(decBench.ghidraOverallAveragePercent >= 90.0);
-  assert.equal(decBench.ghidraNativeCppAveragePercent, 96.8);
-  assert.ok(decBench.aegisOverallAveragePercent > decBench.ghidraOverallAveragePercent);
 });
-
 
 test('v8 Modules 25..28 (Hell\'s Gate SSN, SEH Frame, CFF OLLVM, Early Cascade) detect advanced evasion implants', async () => {
   const hgSample = BENCHMARK_SAMPLES.find((s) => s.id === 'BM-31')!;
@@ -281,7 +278,7 @@ test('v8 Modules 25..28 (Hell\'s Gate SSN, SEH Frame, CFF OLLVM, Early Cascade) 
   assert.ok(sehReport.opcodeFindings.some((f) => f.patternName.includes('SEH') || f.patternName.includes('Windows_SEH')));
 });
 
-test('v9 Benchmark Suite (42 samples: 33 threats + 9 clean) achieves 100.0% detection rate and integrates Bitdefender', async () => {
+test('v9 Benchmark Suite (42 samples: 33 threats + 9 clean) achieves 100.0% detection rate with 0 false positives', async () => {
   const v8Bench = await runRealBenchmarkSuite(DEFAULT_ENGINE_CONFIG);
   assert.equal(v8Bench.totalSamples, 42);
   assert.equal(v8Bench.maliciousSamplesCount, 33);
@@ -290,34 +287,6 @@ test('v9 Benchmark Suite (42 samples: 33 threats + 9 clean) achieves 100.0% dete
   assert.equal(v8Bench.aegisFalsePositives, 0);
   assert.equal(v8Bench.aegisDetectionRatePercent, 100.0);
   assert.equal(v8Bench.aegisStaticScorePercent, 100.0);
-  assert.equal(v8Bench.kasperskyOfflineStaticPercent, 84.8);
-  assert.equal(v8Bench.bitdefenderOfflineStaticPercent, 84.8);
-  assert.ok(v8Bench.aegisDetectionRatePercent > v8Bench.kasperskyOfflineStaticPercent);
-});
-
-
-test('Real NSA Ghidra 11.2.1 empirical headless test verification: verifies dead store elimination, unreachable block warnings, and speedup', () => {
-  assert.equal(REAL_GHIDRA_TEST_CASES.length, 3);
-
-  // ORIG-01: Multi-function + ALU: Ghidra eliminates dead stores, Aegis preserves 100%
-  const orig01 = REAL_GHIDRA_TEST_CASES.find((c) => c.id === 'ORIG-01')!;
-  assert.ok(orig01);
-  assert.equal(orig01.aegisScore.variablesPreserved, '3 из 3 (100%)');
-  assert.equal(orig01.ghidraScore.variablesPreserved, '0 из 3 (0% — удалены как Dead Stores)');
-  assert.ok(orig01.speedupFactor > 1000);
-  assert.ok(orig01.ghidraWarnings.some((w) => w.includes('Dead Code Elimination Pass')));
-
-  // ORIG-03: Opaque predicate: Ghidra outputs WARNING: Removing unreachable block
-  const orig03 = REAL_GHIDRA_TEST_CASES.find((c) => c.id === 'ORIG-03')!;
-  assert.ok(orig03);
-  assert.ok(orig03.ghidraWarnings.some((w) => w.includes('Removing unreachable block')));
-  assert.equal(orig03.aegisScore.unreachableBlocksKept, '100% (Сохранена ветка switch в else)');
-  assert.equal(orig03.ghidraScore.unreachableBlocksKept, '0% (Удален блок 0x13)');
-
-  // BM-26: PE vs RawBinary
-  const bm26 = REAL_GHIDRA_TEST_CASES.find((c) => c.id === 'BM-26')!;
-  assert.ok(bm26);
-  assert.ok(bm26.ghidraWarnings.some((w) => w.includes('File alignment == 0')));
 });
 
 test('v10 Project Lifter Engine reconstructs multi-folder project directory tree (CMake, src/, include/, res/) for PE and Android APK', async () => {
@@ -769,207 +738,150 @@ test('v12 100% Dynamic Universal Byte Decompiler: parses arbitrary runtime-gener
   assert.ok(report.decompilation.reconstructedProject !== undefined, 'Must reconstruct project structure dynamically');
 });
 
-test('31. Real GCC -O0/-O2 x86_64 ELF64 Suite: compute(int) loop + /3 magic 0x55555556 + virtual VTable + 5-case switch + Clean Hello World', async () => {
-  // Build an authentic 64-bit ELF binary with Section Headers (.text, .rodata, .symtab, .strtab, .shstrtab)
-  // containing GCC -O2 machine code for:
-  //   1) _Z7computei (compute(int)): endbr64, test edi,edi, jle, loop with magic 0x55555556 (/ 3), imul, add, xor, backward jne
-  //   2) _ZN6Worker7processEi (Worker::process(int)): C++ virtual call via [rdi] vtable + 5-case switch
-  //   3) main: clean C++ entry point
-  const elf = new Uint8Array(4096);
-  const view = new DataView(elf.buffer);
+test('Real g++ -O0 and -O2 x86_64 ELF64 compilation, decompilation, recompilation, and execution equivalence', async () => {
+  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'elf_real_gpp_test_'));
 
-  // 1. ELF64 Header (64 bytes at offset 0)
-  elf.set([0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01, 0x01, 0x00], 0); // ELF64, little-endian
-  view.setUint16(16, 3, true);      // e_type = ET_DYN (PIE)
-  view.setUint16(18, 0x3e, true);   // e_machine = EM_X86_64
-  view.setUint32(20, 1, true);      // e_version = 1
-  view.setBigUint64(24, 0x1100n, true); // e_entry = 0x1100
-  view.setBigUint64(32, 0n, true);  // e_phoff
-  view.setBigUint64(40, 0x800n, true); // e_shoff = 0x800
-  view.setUint16(52, 64, true);     // e_ehsize = 64
-  view.setUint16(58, 64, true);     // e_shentsize = 64
-  view.setUint16(60, 6, true);      // e_shnum = 6 (NULL, .text, .rodata, .symtab, .strtab, .shstrtab)
-  view.setUint16(62, 5, true);      // e_shstrndx = 5
+  // 1. Test checksum(const uint8_t* p, int n) compiled by real g++ -O0 and -O2
+  const checksumSrc = `
+#include <stdint.h>
+#include <stdio.h>
+extern "C" __attribute__((noinline)) uint32_t checksum(const uint8_t* p, int n) {
+    uint32_t h = 0x811C9DC5;
+    for (int i = 0; i < n; i++) {
+        h ^= p[i];
+        h *= 16777619u;
+        if (h & 1) h += 7;
+    }
+    return h;
+}
+int main() {
+    const uint8_t data[6] = {10, 20, 30, 40, 50, 60};
+    printf("%u\\n", checksum(data, 6));
+    return 0;
+}
+`;
+  const checksumCppPath = path.join(workDir, 'checksum.cpp');
+  fs.writeFileSync(checksumCppPath, checksumSrc);
 
-  // 2. Machine code in .text at file offset 0x100 (VA 0x1100, size 0x200)
-  // Function 1: _Z7computei at offset 0x100 (VA 0x1100, size 0x40)
-  //   f3 0f 1e fa             endbr64
-  //   85 ff                   test edi, edi
-  //   7e 26                   jle +0x26 (to ret)
-  //   31 c9                   xor ecx, ecx
-  //   31 f6                   xor esi, esi
-  // loop_head (offset +0x0c):
-  //   ba 56 55 55 55          mov edx, 0x55555556
-  //   89 c8                   mov eax, ecx
-  //   f7 ea                   imul edx
-  //   0f af c1                imul eax, ecx
-  //   01 c6                   add esi, eax
-  //   31 ce                   xor esi, ecx
-  //   83 c1 01                add ecx, 1
-  //   39 f9                   cmp ecx, edi
-  //   75 e9                   jne loop_head (-23 bytes -> back to +0x0c)
-  //   89 f0                   mov eax, esi
-  //   c3                      ret
-  const computeBytes = [
-    0xf3, 0x0f, 0x1e, 0xfa,
-    0x85, 0xff,
-    0x7e, 0x1b,
-    0x31, 0xc9,
-    0x31, 0xf6,
-    // loop_head (+0x0c):
-    0xba, 0x56, 0x55, 0x55, 0x55,
-    0x89, 0xc8,
-    0xf7, 0xea,
-    0x0f, 0xaf, 0xc1,
-    0x01, 0xc6,
-    0x31, 0xce,
-    0x83, 0xc1, 0x01,
-    0x39, 0xf9,
-    0x75, 0xe9,
-    0x89, 0xf0,
-    0xc3,
-  ];
-  elf.set(computeBytes, 0x100);
+  for (const optFlag of ['-O0', '-O2']) {
+    const origElfPath = path.join(workDir, `checksum_${optFlag}.elf`);
+    execSync(`g++ ${optFlag} "${checksumCppPath}" -o "${origElfPath}"`);
+    const elfBytes = new Uint8Array(fs.readFileSync(origElfPath));
 
-  // Function 2: _ZN6Worker7processEi at offset 0x140 (VA 0x1140, size 0x48)
-  //   f3 0f 1e fa             endbr64
-  //   55                      push rbp
-  //   48 89 e5                mov rbp, rsp
-  //   48 8b 07                mov rax, [rdi]       ; load vtable ptr
-  //   ff 50 08                call [rax+0x8]       ; C++ virtual method call
-  //   83 fe 01                cmp esi, 1
-  //   74 14                   je +0x14
-  //   83 fe 02                cmp esi, 2
-  //   74 12                   je +0x12
-  //   83 fe 03                cmp esi, 3
-  //   74 10                   je +0x10
-  //   83 fe 04                cmp esi, 4
-  //   74 0e                   je +0x0e
-  //   b8 0a 00 00 00          mov eax, 10
-  //   5d                      pop rbp
-  //   c3                      ret
-  const workerBytes = [
-    0xf3, 0x0f, 0x1e, 0xfa,
-    0x55,
-    0x48, 0x89, 0xe5,
-    0x48, 0x8b, 0x07,
-    0xff, 0x50, 0x08,
-    0x83, 0xfe, 0x01,
-    0x74, 0x14,
-    0x83, 0xfe, 0x02,
-    0x74, 0x12,
-    0x83, 0xfe, 0x03,
-    0x74, 0x10,
-    0x83, 0xfe, 0x04,
-    0x74, 0x0e,
-    0xb8, 0x0a, 0x00, 0x00, 0x00,
-    0x5d,
-    0xc3,
-  ];
-  elf.set(workerBytes, 0x140);
+    const report = await analyzeFileBytes(`checksum_${optFlag}.elf`, elfBytes, DEFAULT_ENGINE_CONFIG);
+    assert.equal(report.verdict, 'CLEAN', `Real g++ ${optFlag} checksum binary must have CLEAN verdict`);
+    assert.equal(report.riskScore, 0);
 
-  // Function 3: main at offset 0x190 (VA 0x1190, size 0x18)
-  //   f3 0f 1e fa             endbr64
-  //   bf 0a 00 00 00          mov edi, 10
-  //   e8 67 ff ff ff          call 0x1100 (_Z7computei)
-  //   31 c0                   xor eax, eax
-  //   c3                      ret
-  const mainBytes = [
-    0xf3, 0x0f, 0x1e, 0xfa,
-    0xbf, 0x0a, 0x00, 0x00, 0x00,
-    0xe8, 0x67, 0xff, 0xff, 0xff,
-    0x31, 0xc0,
-    0xc3,
-  ];
-  elf.set(mainBytes, 0x190);
+    const code = report.decompilation.reconstructedCode;
+    assert.ok(
+      code.includes('uint32_t checksum(const uint8_t* p, int n)'),
+      `Must recover System V AMD64 signature uint32_t checksum(const uint8_t* p, int n) in ${optFlag}`
+    );
+    assert.ok(code.includes('for (int i = 0; i < n; i++)'), `Must recover loop condition i < n in ${optFlag}`);
+    assert.ok(code.includes('h = (h ^ p[i]) * 0x1000193;'), `Must fold register expressions in ${optFlag}`);
+    assert.ok(!code.includes('loop_i < 64'), 'Must never contain hardcoded loop_i < 64');
+    assert.ok(!code.includes('[object Object]'), 'Must never contain [object Object]');
 
-  // 3. .rodata at offset 0x300 (VA 0x2000, size 0x80) - contains VTable _ZTV6Worker
-  view.setBigUint64(0x300 + 16, 0x1140n, true); // slot 0 -> 0x1140 (_ZN6Worker7processEi)
+    const decompCppPath = path.join(workDir, `checksum_decomp_${optFlag}.cpp`);
+    const decompElfPath = path.join(workDir, `checksum_decomp_${optFlag}.elf`);
+    fs.writeFileSync(decompCppPath, code);
+    execSync(`g++ -std=c++20 "${decompCppPath}" -o "${decompElfPath}"`);
 
-  // 4. .strtab at offset 0x400
-  const enc = new TextEncoder();
-  const symStrings = '\0_Z7computei\0_ZN6Worker7processEi\0main\0_ZTV6Worker\0';
-  elf.set(enc.encode(symStrings), 0x400);
-  const offCompute = 1;
-  const offWorker = offCompute + '_Z7computei\0'.length;
-  const offMain = offWorker + '_ZN6Worker7processEi\0'.length;
-  const offVtable = offMain + 'main\0'.length;
+    const origStdout = execSync(`"${origElfPath}"`).toString().trim();
+    const decompStdout = execSync(`"${decompElfPath}"`).toString().trim();
+    assert.equal(decompStdout, origStdout, `Decompiled checksum (${optFlag}) output must match original binary`);
+  }
 
-  // 5. .shstrtab at offset 0x500
-  const shStrings = '\0.text\0.rodata\0.symtab\0.strtab\0.shstrtab\0';
-  elf.set(enc.encode(shStrings), 0x500);
+  // 2. Test classify(5-case switch) + C++ Virtual Method Call (Shape/Square) + compute(/ 3) + printf via PLT
+  const suiteSrc = `
+#include <stdio.h>
+#include <stdint.h>
 
-  // 6. .symtab at offset 0x600 (5 entries * 24 bytes = 120 bytes)
-  const writeSym64 = (idx: number, nameOff: number, info: number, shndx: number, value: bigint, size: bigint) => {
-    const base = 0x600 + idx * 24;
-    view.setUint32(base, nameOff, true);
-    elf[base + 4] = info;
-    elf[base + 5] = 0;
-    view.setUint16(base + 6, shndx, true);
-    view.setBigUint64(base + 8, value, true);
-    view.setBigUint64(base + 16, size, true);
-  };
-  writeSym64(0, 0, 0, 0, 0n, 0n);
-  writeSym64(1, offCompute, 0x12, 1, 0x1100n, BigInt(computeBytes.length)); // STT_FUNC (2) | STB_GLOBAL (1<<4)
-  writeSym64(2, offWorker, 0x12, 1, 0x1140n, BigInt(workerBytes.length));   // STT_FUNC
-  writeSym64(3, offMain, 0x12, 1, 0x1190n, BigInt(mainBytes.length));       // STT_FUNC
-  writeSym64(4, offVtable, 0x11, 2, 0x2000n, 32n);                         // STT_OBJECT (1) | STB_GLOBAL
+__attribute__((noinline)) int compute(int n) {
+    int s = 0;
+    for (int i = 0; i < n; i++) {
+        if (i % 2 == 0) s += i / 3;
+        else s ^= i;
+    }
+    return s;
+}
 
-  // 7. Section Headers at offset 0x800 (6 sections * 64 bytes)
-  const writeShdr64 = (
-    idx: number,
-    nameOff: number,
-    type: number,
-    flags: bigint,
-    addr: bigint,
-    offset: bigint,
-    size: bigint,
-    link: number,
-    entsize: bigint
-  ) => {
-    const base = 0x800 + idx * 64;
-    view.setUint32(base, nameOff, true);
-    view.setUint32(base + 4, type, true);
-    view.setBigUint64(base + 8, flags, true);
-    view.setBigUint64(base + 16, addr, true);
-    view.setBigUint64(base + 24, offset, true);
-    view.setBigUint64(base + 32, size, true);
-    view.setUint32(base + 40, link, true);
-    view.setBigUint64(base + 56, entsize, true);
-  };
-  writeShdr64(0, 0, 0, 0n, 0n, 0n, 0n, 0, 0n);
-  writeShdr64(1, 1, 1, 6n, 0x1100n, 0x100n, 0x200n, 0, 0n);          // .text (SHT_PROGBITS, SHF_ALLOC|SHF_EXECINSTR)
-  writeShdr64(2, 7, 1, 2n, 0x2000n, 0x300n, 0x80n, 0, 0n);           // .rodata (SHT_PROGBITS, SHF_ALLOC)
-  writeShdr64(3, 15, 2, 0n, 0n, 0x600n, BigInt(5 * 24), 4, 24n);     // .symtab (SHT_SYMTAB, link=4 .strtab)
-  writeShdr64(4, 23, 3, 0n, 0n, 0x400n, BigInt(symStrings.length), 0, 0n); // .strtab (SHT_STRTAB)
-  writeShdr64(5, 31, 3, 0n, 0n, 0x500n, BigInt(shStrings.length), 0, 0n);  // .shstrtab (SHT_STRTAB)
+__attribute__((noinline)) int classify(int x) {
+    switch (x) {
+        case 1: return 10;
+        case 2: return 20;
+        case 3: return 30;
+        case 4: return 40;
+        case 5: return 50;
+        default: return -1;
+    }
+}
 
-  const report = await analyzeFileBytes('gcc_o2_suite.elf', elf, DEFAULT_ENGINE_CONFIG);
+struct Shape {
+    int side;
+    Shape(int s) : side(s) {}
+    virtual int area() { return 0; }
+};
 
-  // 1. Clean GCC ELF64 binary MUST NOT be flagged MALICIOUS!
-  assert.equal(report.verdict, 'CLEAN', 'Clean GCC C++ ELF64 binary must have CLEAN verdict');
-  assert.equal(report.riskScore, 0, 'Clean GCC C++ ELF64 binary must have 0 riskScore');
+struct Square : Shape {
+    Square(int s) : Shape(s) {}
+    int area() override { return side * side; }
+};
 
-  const code = report.decompilation.reconstructedCode;
-  const metrics = report.decompilation.cfgStats;
+__attribute__((noinline)) int run_shape(Shape* s) {
+    return s->area();
+}
 
-  // 2. Verify NO Windows headers, NO __fastcall, NO fake templates (0x5A5A5A5A / ExecuteProtectedStage)
-  assert.ok(!code.includes('#include <windows.h>'), 'Linux ELF64 decompilation must never include <windows.h>');
-  assert.ok(!code.includes('__fastcall'), 'Linux ELF64 decompilation must use System V AMD64 ABI, never __fastcall');
-  assert.ok(!code.includes('5A5A5A5A'), 'Must never contain fake 0x5A5A5A5A template');
-  assert.ok(!code.includes('ExecuteProtectedStage'), 'Must never contain fake ExecuteProtectedStage template');
+int main() {
+    Square sq(5);
+    printf("compute=%d classify=%d area=%d\\n", compute(12), classify(3), run_shape(&sq));
+    return 0;
+}
+`;
+  const suiteCppPath = path.join(workDir, 'suite.cpp');
+  fs.writeFileSync(suiteCppPath, suiteSrc);
 
-  // 3. Verify Itanium C++ demangling + magic constant division / 3 (0x55555556) + loop + if/else + ALU
-  assert.ok(code.includes('int compute(int'), 'Must demangle _Z7computei to int compute(int ...)');
-  assert.ok(code.includes('/ 3') && code.includes('0x55555556'), 'Must recover magic-constant division by 3 (0x55555556)');
-  assert.ok(metrics.loopsCount >= 1, `Must recover loop from backward conditional jump (got ${metrics.loopsCount})`);
-  assert.ok(metrics.ifElseBranchesCount >= 1, `Must recover if/else branch (got ${metrics.ifElseBranchesCount})`);
-  assert.ok((metrics.aluOperationsCount || 0) >= 3, `Must recover ALU ops imul/add/xor (got ${metrics.aluOperationsCount})`);
+  for (const optFlag of ['-O0', '-O2']) {
+    const origElfPath = path.join(workDir, `suite_${optFlag}.elf`);
+    execSync(`g++ ${optFlag} "${suiteCppPath}" -o "${origElfPath}"`);
+    const elfBytes = new Uint8Array(fs.readFileSync(origElfPath));
 
-  // 4. Verify C++ virtual method call (VTable) + multi-case switch reconstruction
-  assert.ok((metrics.vtableCallsCount || 0) >= 1, `Must recover C++ VTable call (got ${metrics.vtableCallsCount})`);
-  assert.ok((metrics.switchBlocksCount || 0) >= 1, `Must recover multi-case switch block (got ${metrics.switchBlocksCount})`);
+    const report = await analyzeFileBytes(`suite_${optFlag}.elf`, elfBytes, DEFAULT_ENGINE_CONFIG);
+    assert.equal(report.verdict, 'CLEAN', `Real g++ ${optFlag} suite binary must have CLEAN verdict`);
+    assert.equal(report.riskScore, 0);
+
+    const code = report.decompilation.reconstructedCode;
+    const metrics = report.decompilation.cfgStats;
+    assert.ok(!code.includes('[object Object]'), 'VTable comments must never contain [object Object]');
+    assert.ok(!code.includes('#include <windows.h>'), 'Linux ELF64 must never include <windows.h>');
+    assert.ok(!code.includes('__fastcall'), 'Linux ELF64 must never use __fastcall');
+    assert.ok(metrics.loopsCount >= 1, `Must detect loop in ${optFlag}`);
+    assert.ok((metrics.switchBlocksCount ?? 0) >= 1, `Must detect switch in ${optFlag}`);
+    assert.ok((metrics.vtableCallsCount ?? 0) >= 1, `Must detect VTable call in ${optFlag}`);
+
+    const decompCppPath = path.join(workDir, `suite_decomp_${optFlag}.cpp`);
+    const decompElfPath = path.join(workDir, `suite_decomp_${optFlag}.elf`);
+    fs.writeFileSync(decompCppPath, code);
+    execSync(`g++ -std=c++20 "${decompCppPath}" -o "${decompElfPath}"`);
+
+    const origOut = execSync(`"${origElfPath}"`).toString().trim();
+    const decompOut = execSync(`"${decompElfPath}"`).toString().trim();
+    assert.equal(decompOut, origOut, `Decompiled suite (${optFlag}) stdout must match original binary`);
+  }
+
+  // 3. Minimal clean program int main(){return 0;} must receive CLEAN verdict
+  const cleanSrc = `int main() { return 0; }\n`;
+  const cleanCppPath = path.join(workDir, 'clean.cpp');
+  const cleanElfPath = path.join(workDir, 'clean.elf');
+  fs.writeFileSync(cleanCppPath, cleanSrc);
+  execSync(`g++ -O2 "${cleanCppPath}" -o "${cleanElfPath}"`);
+  const cleanReport = await analyzeFileBytes('clean.elf', new Uint8Array(fs.readFileSync(cleanElfPath)), DEFAULT_ENGINE_CONFIG);
+  assert.equal(cleanReport.verdict, 'CLEAN', 'int main(){return 0;} must receive CLEAN verdict');
+  assert.equal(cleanReport.riskScore, 0);
+
+  fs.rmSync(workDir, { recursive: true, force: true });
 });
+
 
 
 

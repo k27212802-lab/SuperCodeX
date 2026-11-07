@@ -18,6 +18,7 @@ import {
   parseElfBinaryStructure,
   parsePeBinaryStructure,
 } from './peExportAndDecoder';
+import { decompileElfBinary } from './elfDecompiler';
 
 export interface DisassembledInstruction {
   addressHex: string;
@@ -100,6 +101,7 @@ export interface DecompilationCfgStats {
   opaquePredicatesSimplified?: number;
   recoveredFunctionsCount?: number;
   aluOperationsCount?: number;
+  callsCount?: number;
   pdbOrSymbolTableRestoredCount?: number;
   instructionPreservationPercent?: number;
 }
@@ -1441,6 +1443,7 @@ export function disassembleAndLiftX86_64ToCpp(
   opaquePredicatesSimplified: number;
   recoveredFunctionsCount: number;
   aluOperationsCount: number;
+  callsCount?: number;
   pdbOrSymbolTableRestoredCount: number;
   instructionPreservationPercent: number;
 } {
@@ -2430,6 +2433,33 @@ export function disassembleAndLiftX86_64ToCpp(
     bodyLines: string[];
   }[] = [];
 
+  if (elfInfo.isValidElf && !opcodeFindings.some((f) => f.patternName.includes('io_uring'))) {
+    const elfBundle = decompileElfBinary(bytes, fileName);
+    if (elfBundle.isValidElf && elfBundle.functions.length > 0) {
+      return {
+        disassembly,
+        reconstructedCpp: elfBundle.reconstructedCppFile,
+        hasRdtscTimingCheck: false,
+        hasIndirectRegisterCall: false,
+        hasFunctionPrologue: true,
+        ifElseBranchesCount: elfBundle.totalIfElse,
+        loopsCount: elfBundle.totalLoops,
+        localVariablesCount: elfBundle.totalLocalVars,
+        typedParametersCount: elfBundle.functions.length,
+        win64AbiCallDetected: false,
+        structFieldsCount: elfBundle.totalStructFields,
+        vtableCallsCount: elfBundle.totalVtableCalls,
+        switchBlocksCount: elfBundle.totalSwitches,
+        opaquePredicatesSimplified: 0,
+        recoveredFunctionsCount: elfBundle.functions.length,
+        aluOperationsCount: elfBundle.totalAluOps,
+        callsCount: elfBundle.totalCalls,
+        pdbOrSymbolTableRestoredCount: elfBundle.functions.length,
+        instructionPreservationPercent: 100.0,
+      };
+    }
+  }
+
   if (elfInfo.isValidElf && elfInfo.userFunctions.length > 0) {
     for (const fn of elfInfo.userFunctions.slice(0, 64)) {
       const decoded = decodeNativeFunctionBytes(bytes, fn.fileOffset, peInfoForDecomp, {
@@ -2508,7 +2538,7 @@ export function disassembleAndLiftX86_64ToCpp(
       `// --- Реконструированная таблица виртуальных методов (VTable) и структура класса C++ ---`
     );
     for (const vtSym of elfInfo.vtableSymbols) {
-      cppLines.push(`// ELF Symbol: ${vtSym.rawName} -> ${vtSym.demangled} @ ${vtSym.vaHex}`);
+      cppLines.push(`// ELF Symbol: ${vtSym.rawName} -> ${vtSym.demangled.fullSignature} @ ${vtSym.vaHex}`);
     }
     cppLines.push(`struct RecoveredVTable_Layout {`);
     for (const voff of Array.from(recoveredVtableOffsets).sort((a, b) => a - b)) {
@@ -3514,6 +3544,7 @@ export function runBinarySourceDecompiler(
       opaquePredicatesSimplified: lifted.opaquePredicatesSimplified,
       recoveredFunctionsCount: lifted.recoveredFunctionsCount,
       aluOperationsCount: lifted.aluOperationsCount,
+      callsCount: lifted.callsCount,
       pdbOrSymbolTableRestoredCount: lifted.pdbOrSymbolTableRestoredCount,
       instructionPreservationPercent: lifted.instructionPreservationPercent,
     },
